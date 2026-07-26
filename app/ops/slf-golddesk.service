@@ -1,0 +1,19 @@
+[Unit]
+Description=SLF GoldDesk (Next.js)
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/slf/app
+EnvironmentFile=/home/ubuntu/slf/.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+ExecStart=/usr/local/bin/node /home/ubuntu/slf/app/node_modules/next/dist/bin/next start -p 3000 -H 127.0.0.1
+Restart=always
+RestartSec=3
+StandardOutput=append:/home/ubuntu/slf/app.log
+StandardError=append:/home/ubuntu/slf/app.log
+
+[Install]
+WantedBy=multi-user.target

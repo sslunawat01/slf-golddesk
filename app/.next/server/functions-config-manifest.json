@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/auth/branch": {},
+    "/api/auth/logout": {},
+    "/api/auth/login": {},
+    "/api/auth/password": {},
+    "/api/rate": {}
+  }
+}
