@@ -1,4 +1,6 @@
 .env
 node_modules/
+.next/
 backups/
 *.log
+app.log
