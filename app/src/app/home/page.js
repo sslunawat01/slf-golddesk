@@ -64,10 +64,14 @@ export default async function Home() {
       </div>
 
       <div className="wrap" style={{ padding: "22px 16px 60px" }}>
-        <h1 style={{ fontSize: 22, fontWeight: 900 }}>Signed in ✓</h1>
-        <p style={{ color: "var(--mut)", fontSize: 14, margin: "6px 0 18px" }}>
-          Step 4 foundation: real authentication, database-backed sessions, and permissions
-          resolved on the server. The designed screens plug into this.
+        <a href="/search" style={{ display: "block", textDecoration: "none" }}>
+          <div style={{ border: "1px solid #cfc9ba", borderRadius: 12, padding: "16px 18px",
+            background: "#fff", color: "var(--mut)", fontSize: 16, maxWidth: 760 }}>
+            🔍 Customer at counter? Type mobile, name, or loan no…
+          </div>
+        </a>
+        <p style={{ color: "var(--mut)", fontSize: 13.5, margin: "8px 0 20px" }}>
+          Search is the front door — new pledge, payment, renewal, enquiry, everything.
         </p>
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 14 }}>
@@ -107,7 +111,10 @@ export default async function Home() {
               Your desks — from permissions, not job title</div>
             <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
               {Object.entries(desks).map(([k, v]) =>
-                v && k === "dailyRate"
+                v && k === "approvals"
+                  ? <a key={k} href="/hq/approvals" className="chip ok" style={{ textDecoration: "none" }}>
+                      ✓ {deskLabels[k]} →</a>
+                  : v && k === "dailyRate"
                   ? <a key={k} href="/hq/rate" className="chip ok" style={{ textDecoration: "none" }}>
                       ✓ {deskLabels[k]} →</a>
                   : <span key={k} className={"chip " + (v ? "ok" : "mut")}>{v ? "✓" : "—"} {deskLabels[k]}</span>)}
