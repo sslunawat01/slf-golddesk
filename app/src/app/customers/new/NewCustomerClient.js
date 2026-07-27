@@ -3,7 +3,7 @@ import { useState, useMemo } from "react";
 import PhotoInput from "@/components/PhotoInput.js";
 import { validateNewCustomer, blacklistState, isMobile, isAadhaar, isPan, isGst,
          isIfsc, isPincode } from "@/lib/customer.js";
-import { formatAadhaar, cleanAadhaar, formatPan, formatMobile, cleanDigits, formatIfsc } from "@/lib/format.js";
+import { formatAadhaar, cleanAadhaar, formatPan, formatMobile, cleanDigits, formatIfsc , titleCaseName } from "@/lib/format.js";
 
 /* Structure follows the frozen UX exactly:
    Identity · Contact (mobile + address) · Documents (KYC + banks) · Nominee · Loan settings */
@@ -200,11 +200,14 @@ export default function NewCustomerClient({ docTypes, prefill }) {
         {tab === 0 && <>
           <div className="fg3">
             <F label="First name *"><input className="i" value={c.firstName}
-              onChange={e => set({ firstName: e.target.value })} /></F>
+              onChange={e => set({ firstName: e.target.value })}
+              onBlur={e => set({ firstName: titleCaseName(e.target.value) })} /></F>
             <F label="Middle name"><input className="i" value={c.middleName}
-              onChange={e => set({ middleName: e.target.value })} /></F>
+              onChange={e => set({ middleName: e.target.value })}
+              onBlur={e => set({ middleName: titleCaseName(e.target.value) })} /></F>
             <F label="Last name *"><input className="i" value={c.lastName}
-              onChange={e => set({ lastName: e.target.value })} /></F>
+              onChange={e => set({ lastName: e.target.value })}
+              onBlur={e => set({ lastName: titleCaseName(e.target.value) })} /></F>
             <F label="Date of birth *"><input className="i" type="date" value={c.dob}
               onChange={e => set({ dob: e.target.value })} /></F>
             <F label="Gender *"><select className="i" value={c.gender}

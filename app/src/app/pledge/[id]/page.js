@@ -18,11 +18,12 @@ export default async function PledgePage({ params }) {
       WHERE a.id = $1 AND a.branch_id = $2`, [id, actor.actingBranchId]);
   if (!app) notFound();
 
-  const [items, photos, purities, itemMaster, schemes, valuers, banks, slfAccounts, thr] = await Promise.all([
+  const [items, photos, purities, itemMaster, schemes, valuers, banks, slfAccounts, thr, metals] = await Promise.all([
     q(`SELECT item_id, qty, gross_mg, stone_mg, purity_id, narration FROM appraisal_item WHERE application_id=$1`, [id]),
     q(`SELECT file_id FROM application_photo WHERE application_id=$1 ORDER BY ord`, [id]),
-    q(`SELECT id, karat, purity_pct AS "purityPct" FROM purity WHERE metal_id=1 AND active ORDER BY purity_pct DESC`),
-    q(`SELECT id, name FROM item WHERE metal_id=1 AND active ORDER BY name`),
+    q(`SELECT id, karat, purity_pct AS "purityPct", metal_id AS "metalId"
+         FROM purity WHERE active ORDER BY metal_id, purity_pct DESC`),
+    q(`SELECT id, name, metal_id AS "metalId" FROM item WHERE active ORDER BY metal_id, name`),
     q(`SELECT sv.id, s.code, sv.funding_pct AS "fundingPct", sv.min_loan_paise AS "minLoanPaise",
               sv.max_loan_paise AS "maxLoanPaise", sv.doc_charge_pct AS "docChargePct",
               sv.doc_charge_min_paise AS "docChargeMinPaise", sv.doc_charge_max_paise AS "docChargeMaxPaise"
@@ -40,6 +41,7 @@ export default async function PledgePage({ params }) {
          FROM customer_bank_account WHERE customer_id=$1 ORDER BY id`, [app.customer_id]),
     q(`SELECT id, nickname FROM slf_bank_account WHERE active AND allow_disbursement ORDER BY nickname`),
     one(`SELECT value FROM app_setting WHERE key='valuer2_threshold_paise'`),
+    q(`SELECT id, kind FROM metal WHERE enabled ORDER BY id`),
   ]);
 
   const authority = sanctionAuthority(actor);
@@ -58,9 +60,11 @@ export default async function PledgePage({ params }) {
         items={items.map(i => ({ itemId: String(i.item_id), qty: i.qty,
           gross: (i.gross_mg / 1000).toFixed(3), stone: (i.stone_mg / 1000).toFixed(3),
           purityId: String(i.purity_id), narration: i.narration || "" }))}
-        purities={purities.map(p => ({ ...p, id: Number(p.id) }))}
+        purities={purities.map(p => ({ ...p, id: Number(p.id), metalId: Number(p.metalId) }))}
+        metals={metals.map(m => ({ id: Number(m.id), kind: m.kind }))}
+        ratedMetalId={1}
         schemes={schemes.map(s => ({ ...s, id: Number(s.id) }))}
-        itemMaster={itemMaster.map(i => ({ ...i, id: Number(i.id) }))}
+        itemMaster={itemMaster.map(i => ({ ...i, id: Number(i.id), metalId: Number(i.metalId) }))}
         valuers={valuers.map(v => ({ ...v, id: Number(v.id) }))}
         banks={banks.map(b => ({ ...b, id: Number(b.id) }))}
         slfAccounts={slfAccounts.map(a => ({ ...a, id: Number(a.id) }))}

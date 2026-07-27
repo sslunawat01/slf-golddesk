@@ -1,3 +1,4 @@
+import { titleCaseName } from "@/lib/format.js";
 import { NextResponse } from "next/server";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
@@ -42,7 +43,7 @@ export async function POST(req) {
            blacklist_narration, created_by, mobile_verified_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,CURRENT_DATE,$19,$20,$21,$22,$23)
          RETURNING id, cust_no, full_name, is_blacklisted`,
-        [no, c.custType || "individual", c.firstName.trim(), c.middleName?.trim() || null, c.lastName.trim(),
+        [no, c.custType || "individual", titleCaseName(c.firstName), titleCaseName(c.middleName) || null, titleCaseName(c.lastName),
          normEnum(c.gender, ["male","female","other"]), c.dob, c.relativeName?.trim() || null, c.mobile, c.altMobile || null,
          c.email || null, !!c.appAccess, String(c.aadhaar).slice(-4), c.aadhaarVerified ? new Date() : null,
          c.pan.toUpperCase(), c.panVerified ? new Date() : null, c.gstin?.toUpperCase() || null,

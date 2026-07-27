@@ -102,8 +102,15 @@ export function valuerRule(amountPaise, thresholdPaise, valuer1Id, valuer2Id) {
 
 /** R11 — cash below ₹20,000 (269SS); the remainder must go to a bank account. */
 export const CASH_CAP_PAISE = 2000000;
+/**
+ * R-D2 (owner decision, 27 July 2026): charges are NOT netted off at disbursement.
+ * The customer receives the FULL sanctioned amount. The processing charge is raised
+ * on the loan and collected at the first repayment, where the appropriation order
+ * already puts charges first. `chargesPaise` is accepted for display only.
+ * Because the principal is always a multiple of 100 (R-J), the payable amount is too.
+ */
 export function disbursementPlan({ principalPaise, chargesPaise = 0, cashPaise = 0, bankLegs = [] }) {
-  const payable = principalPaise - chargesPaise;
+  const payable = principalPaise;
   const bankTotal = bankLegs.reduce((s, l) => s + Number(l.amountPaise || 0), 0);
   const allocated = cashPaise + bankTotal;
   const problems = [];
@@ -127,4 +134,9 @@ export function docCharge({ principalPaise, pct = 0, minPaise = 0, maxPaise = 0,
   if (maxPaise && base > maxPaise) base = maxPaise;
   const gst = Math.round((base * gstPct) / 100);
   return { basePaise: base, gstPaise: gst, totalPaise: base + gst };
+}
+
+/** What is left for the bank leg once the cash portion is keyed in. */
+export function bankRemainder({ payablePaise, cashPaise = 0 }) {
+  return Math.max(0, Number(payablePaise || 0) - Math.max(0, Number(cashPaise || 0)));
 }

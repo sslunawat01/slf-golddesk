@@ -1,4 +1,4 @@
-import { formatAadhaar, cleanAadhaar, maskAadhaar, formatPan, formatMobile, formatIfsc } from "../src/lib/format.js";
+import { formatAadhaar, cleanAadhaar, maskAadhaar, formatPan, formatMobile, formatIfsc, titleCaseName } from "../src/lib/format.js";
 let pass=0, fail=0;
 const eq=(n,g,w)=>{const ok=g===w;ok?(pass++,console.log("  ✓",n)):
   (fail++,console.log("  ✗",n,"\n      got ",JSON.stringify(g),"\n      want",JSON.stringify(w)));};
@@ -29,6 +29,22 @@ eq("caps at ten digits", formatMobile("98220112239999"), "98220 11223");
 console.log("\n§4 IFSC");
 eq("uppercased", formatIfsc("kkbk0001896"), "KKBK0001896");
 eq("symbols dropped", formatIfsc("KKBK-0001896"), "KKBK0001896");
+
+
+console.log("\n§6 A customer's name stores the same way however it was typed");
+{
+  eq("all lower case", titleCaseName("naveen goyal"), "Naveen Goyal");
+  eq("all upper case", titleCaseName("PRATHMESH HANUMANTA KASAR"), "Prathmesh Hanumanta Kasar");
+  eq("jumbled case", titleCaseName("nAVEEN gOYAL"), "Naveen Goyal");
+  eq("already correct is left alone", titleCaseName("Komal Balasaheb Mali"), "Komal Balasaheb Mali");
+  eq("spaces at the ends are trimmed", titleCaseName("  sarita   patil  "), "Sarita Patil");
+  eq("an initial keeps its dot and its capital", titleCaseName("s. lunawat"), "S. Lunawat");
+  eq("hyphenated names capitalise both parts", titleCaseName("ram-krishna"), "Ram-Krishna");
+  eq("an apostrophe capitalises what follows", titleCaseName("d'souza"), "D'Souza");
+  eq("a single letter still works", titleCaseName("v"), "V");
+  eq("empty stays empty", titleCaseName(""), "");
+  eq("nothing at all stays empty", titleCaseName(null), "");
+}
 
 console.log(`\n${pass} passed · ${fail} failed`);
 process.exit(fail ? 1 : 0);

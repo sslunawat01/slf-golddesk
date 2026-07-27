@@ -60,6 +60,39 @@ export async function POST(req, { params }) {
     return NextResponse.json({ ok: true, status: "cancelled" });
   }
 
+  // ———————————————————————— withdraw ————————————————————————
+  if (action === "withdraw") {
+    if (!can(actor, "appraise", { need: "full" }).ok)
+      return NextResponse.json({ ok: false, reason: "Not permitted" }, { status: 403 });
+    if (app.status !== "pending_ho")
+      return NextResponse.json({ ok: false,
+        reason: app.status === "approved"
+          ? "This file is already approved — its amount can no longer be changed. Cancel it and raise a new pledge."
+          : `Application is ${app.status} — there is nothing to withdraw` }, { status: 409 });
+
+    let pulled = 0;
+    await tx(async (cl) => {
+      const r = await cl.query(
+        `UPDATE ho_approval SET status='withdrawn', decided_at=now(),
+                reject_reason='withdrawn by the branch before a decision was taken'
+          WHERE application_id=$1 AND status='waiting'`, [id]);
+      pulled = r.rowCount;
+      if (!pulled) return;
+      await cl.query(`UPDATE loan_application SET status='appraised', updated_at=now(), updated_by=$2 WHERE id=$1`,
+        [id, actor.employeeId]);
+      await cl.query(`INSERT INTO loan_state_history (application_id, from_state, to_state, by_employee, note)
+                      VALUES ($1,'pending_ho','appraised',$2,$3)`,
+        [id, actor.employeeId, String(body.narration || "withdrawn at the branch to amend the amount").trim()]);
+      await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+        table: "loan_application", entityId: Number(id), action: "withdrawn_from_ho",
+        after: { previousAmountPaise: Number(app.requested_paise || 0) } });
+    }, { entityIds: actor.entityIds });
+
+    if (!pulled) return NextResponse.json({ ok: false,
+      reason: "Head Office has already decided this file — it can no longer be withdrawn" }, { status: 409 });
+    return NextResponse.json({ ok: true, status: "appraised" });
+  }
+
   // ————————————————————————— submit —————————————————————————
   if (action === "submit") {
     if (!can(actor, "appraise", { need: "full" }).ok)
@@ -142,7 +175,9 @@ export async function POST(req, { params }) {
       legs.push({ accountId: acc.id, amountPaise: Number(l.amountPaise),
         verified: !!(acc.verified_at || acc.cheque_file_id) });
     }
-    const plan = disbursementPlan({ principalPaise: principal, chargesPaise: charge.totalPaise,
+    // R-D2 — the customer receives the full sanctioned amount; the charge is
+    // raised on the loan below and collected at the first repayment.
+    const plan = disbursementPlan({ principalPaise: principal,
       cashPaise: Number(body.cashPaise || 0), bankLegs: legs });
     if (!plan.ok) return NextResponse.json({ ok: false, reason: plan.problems[0], problems: plan.problems }, { status: 400 });
 
@@ -171,7 +206,7 @@ export async function POST(req, { params }) {
         const ct = await one(`SELECT id FROM charge_type WHERE name='Processing' AND active LIMIT 1`);
         if (ct) await cl.query(
           `INSERT INTO loan_charge (loan_id, charge_type_id, base_paise, gst_paise, total_paise, floor_paise, narration, added_by)
-           VALUES ($1,$2,$3,$4,$5,$5,'Processing charge at disbursement',$6)`,
+           VALUES ($1,$2,$3,$4,$5,$5,'Processing charge — recovered at first repayment',$6)`,
           [loan.id, ct.id, charge.basePaise, charge.gstPaise, charge.totalPaise, actor.employeeId]);
       }
 

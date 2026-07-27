@@ -34,3 +34,29 @@ export const cleanDigits = (v) => String(v || "").replace(/\D/g, "");
 /** IFSC: four letters, a zero, then six characters. */
 export const formatIfsc = (v) =>
   String(v || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 11);
+
+/**
+ * Names are stored in one shape, however they were typed.
+ * "naveen goyal", "NAVEEN GOYAL" and "nAVEEN gOYAL" all store as "Naveen Goyal".
+ *
+ * Kept deliberately simple and predictable:
+ *  · each word starts capital, the rest lowercase
+ *  · parts joined by - or ' are each capitalised — ram-krishna → Ram-Krishna, d'souza → D'Souza
+ *  · initials keep their dot and their capital — s. lunawat → S. Lunawat
+ *  · runs of spaces collapse to one, and the ends are trimmed
+ *
+ * It does NOT try to be clever about McDonald or DeSouza — a clerk can always
+ * correct the field afterwards, and a rule nobody can predict is worse than none.
+ */
+export function titleCaseName(v) {
+  return String(v || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .split(" ")
+    .map(word => word
+      .split(/([-'])/)                       // keep the separators
+      .map(part => (part === "-" || part === "'") ? part
+        : part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+      .join(""))
+    .join(" ");
+}
