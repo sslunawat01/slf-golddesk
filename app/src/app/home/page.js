@@ -21,7 +21,12 @@ export default async function Home() {
               WHERE r.released_at IS NULL AND l.branch_id=$1)::int AS release_queue,
             (SELECT count(*) FROM ho_approval h JOIN loan_application a ON a.id=h.application_id
               WHERE h.status='waiting' AND a.branch_id=$1)::int AS awaiting_ho,
-            (SELECT count(*) FROM customer)::int AS customers`, [actor.actingBranchId]);
+            (SELECT count(*) FROM customer)::int AS customers,
+            (SELECT count(*) FROM packet pk JOIN loan l2 ON l2.id=pk.loan_id
+              WHERE pk.status='at_counter' AND l2.branch_id=$1)::int AS vault_due,
+            (SELECT count(*) FROM packet pk JOIN loan l2 ON l2.id=pk.loan_id
+              WHERE pk.status='frozen' AND l2.branch_id=$1)::int AS vault_frozen`,
+    [actor.actingBranchId]);
   const day = await one(
     `SELECT begin_signed_at, end_signed_at FROM day_cycle
       WHERE branch_id=$1 AND business_date=CURRENT_DATE`, [actor.actingBranchId]);
@@ -103,6 +108,21 @@ export default async function Home() {
                 {day?.begin_signed_at ? "day-begin signed" : "day-begin not signed"}</span>
             </div>
           </div>
+
+          {desks.vault && (
+            <a href="/vault" className="card" style={{ textDecoration: "none", color: "inherit",
+              display: "block", borderColor: counts.vault_due > 0 ? "var(--brass)" : undefined }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: "var(--mut)" }}>
+                Vault-in due — {counts.vault_due} packet{counts.vault_due === 1 ? "" : "s"}</div>
+              <div style={{ marginTop: 8, fontSize: 14, color: "var(--mut)", lineHeight: 1.5 }}>
+                Disbursed pledges still in counter custody · recheck, then safe.</div>
+              {counts.vault_frozen > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <span className="chip bad">{counts.vault_frozen} frozen after a mismatch</span></div>)}
+              <div style={{ marginTop: 12, fontWeight: 800, fontSize: 14, color: "var(--vault)" }}>
+                Open list →</div>
+            </a>
+          )}
 
           <div className="card">
             <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: "var(--mut)" }}>

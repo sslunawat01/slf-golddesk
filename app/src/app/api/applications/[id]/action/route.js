@@ -191,6 +191,13 @@ export async function POST(req, { params }) {
         [loanNo, id, app.entity_id, app.branch_id, app.customer_id, app.scheme_version_id,
          principal, actor.employeeId]);
 
+      // The packet exists from the moment the gold is taken in — unsealed, at the
+      // counter. Sealing happens at vault-in the next working day (R-V1).
+      const packetNo = await issueNumber(cl, { entityId: app.entity_id, branchId: app.branch_id,
+        docType: "packet", fy: fy() });
+      await cl.query(`INSERT INTO packet (packet_no, loan_id, status) VALUES ($1,$2,'at_counter')`,
+        [packetNo, loan.id]);
+
       const { rows: [d] } = await cl.query(
         `INSERT INTO disbursement (loan_id, from_slf_account_id, created_by) VALUES ($1,$2,$3) RETURNING id`,
         [loan.id, body.slfAccountId || null, actor.employeeId]);
@@ -218,7 +225,7 @@ export async function POST(req, { params }) {
       await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
         table: "loan", entityId: Number(loan.id), action: "loan_activated",
         after: { loanNo, principal, cash: body.cashPaise, legs: legs.length } });
-      return { loanId: Number(loan.id), loanNo };
+      return { loanId: Number(loan.id), loanNo, packetNo };
     }, { entityIds: actor.entityIds });
 
     return NextResponse.json({ ok: true, ...out, chargePaise: charge.totalPaise });
