@@ -131,11 +131,12 @@ export default async function Customer360({ params, searchParams }) {
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button className="btn ghost" disabled style={{ fontSize: 13, padding: "8px 12px" }}>Renew</button>
-                  <button className="btn green" disabled style={{ fontSize: 13, padding: "8px 12px" }}>Collect</button>
+                  <a href={`/repay/${l.id}`} className="btn green"
+                    style={{ fontSize: 13, padding: "8px 12px", textDecoration: "none" }}>Collect</a>
                 </div>
               </div>))}
             {loans.length > 0 && <div className="hint" style={{ marginTop: 8 }}>
-              Live dues and collection arrive with Sprint 1B — the engine is already proven.</div>}
+              Dues are priced live by the interest engine from this loan&rsquo;s receipts.</div>}
           </div>
 
           <div className="card">
