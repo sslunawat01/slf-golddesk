@@ -1,5 +1,6 @@
 import { roundUp100, ratePerGram, fundingRatePerGram, ornamentValue, appraisalTotals,
-         validPrincipal, valuerRule, disbursementPlan, docCharge, CASH_CAP_PAISE } from "../src/lib/valuation.js";
+         validPrincipal, valuerRule, disbursementPlan, docCharge, haircut,
+         CASH_CAP_PAISE } from "../src/lib/valuation.js";
 let pass=0, fail=0;
 const eq=(n,g,w)=>{const ok=JSON.stringify(g)===JSON.stringify(w);ok?(pass++,console.log("  ✓",n)):
   (fail++,console.log("  ✗",n,"\n      got ",JSON.stringify(g),"\n      want",JSON.stringify(w)));};
@@ -110,6 +111,26 @@ console.log("\n§8 Document charge");
      docCharge({ principalPaise: 1000000, pct: 0.25, minPaise: 10000, maxPaise: 150000 }).basePaise, 10000);
   eq("cap applies to large loans",
      docCharge({ principalPaise: 900000000, pct: 0.25, minPaise: 10000, maxPaise: 150000 }).basePaise, 150000);
+}
+
+console.log("\n§9 Two rates — market for worth, funding for lending");
+{
+  const MARKET = 1204000, FUNDING = 1129000;          // ₹12,040 and ₹11,290 per gram
+  eq("22K market/gram ₹11,076.80", ratePerGram(MARKET, 92), 1107680);
+  eq("22K funding/gram ₹10,386.80", ratePerGram(FUNDING, 92), 1038680);
+  eq("haircut is ₹750/g", haircut(MARKET, FUNDING).gapPaise, 75000);
+  eq("haircut is 6.2%", Number(haircut(MARKET, FUNDING).pct.toFixed(1)), 6.2);
+
+  const v = ornamentValue({ grossMg: 10000, stoneMg: 0, purityPct: 92,
+    base24kPaise: MARKET, funding24kPaise: FUNDING, fundingPct: 70 });
+  eq("10 g at 22K is worth ₹1,10,800 (rounded up)", v.marketPaise, 11080000);
+  eq("funding uses the funding rate, then the scheme's 70%", v.fundingPaise,
+     Math.ceil(((10000 * FUNDING * 92) / (100 * 1000)) * 0.7 / 10000) * 10000);
+  eq("funding is materially below market", v.fundingPaise < v.marketPaise, true);
+
+  const noPair = ornamentValue({ grossMg: 10000, stoneMg: 0, purityPct: 92,
+    base24kPaise: MARKET, fundingPct: 70 });
+  eq("older single-rate rows still price correctly", noPair.marketPaise, 11080000);
 }
 
 console.log(`\n${pass} passed · ${fail} failed`);

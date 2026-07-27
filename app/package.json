@@ -7,7 +7,7 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000 -H 127.0.0.1",
-    "test": "node scripts/test-auth.mjs && node scripts/test-customer.mjs && node scripts/test-valuation.mjs",
+    "test": "node scripts/test-auth.mjs && node scripts/test-customer.mjs && node scripts/test-valuation.mjs && node scripts/test-rate.mjs && node scripts/test-format.mjs",
     "setpw": "node scripts/set-password.mjs"
   },
   "dependencies": {

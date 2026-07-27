@@ -59,13 +59,14 @@ export default async function PledgePage({ params }) {
           gross: (i.gross_mg / 1000).toFixed(3), stone: (i.stone_mg / 1000).toFixed(3),
           purityId: String(i.purity_id), narration: i.narration || "" }))}
         purities={purities.map(p => ({ ...p, id: Number(p.id) }))}
-        schemes={Object.assign(schemes.map(s => ({ ...s, id: Number(s.id) })),
-                 { items: itemMaster.map(i => ({ ...i, id: Number(i.id) })) })}
+        schemes={schemes.map(s => ({ ...s, id: Number(s.id) }))}
+        itemMaster={itemMaster.map(i => ({ ...i, id: Number(i.id) }))}
         valuers={valuers.map(v => ({ ...v, id: Number(v.id) }))}
         banks={banks.map(b => ({ ...b, id: Number(b.id) }))}
         slfAccounts={slfAccounts.map(a => ({ ...a, id: Number(a.id) }))}
         ceilingPaise={authority.unlimited ? null : authority.ceilingPaise}
         base24k={Number(app.base_paise_snapshot)}
+        funding24k={Number(app.funding_paise_snapshot ?? app.base_paise_snapshot)}
         valuer2Threshold={Number(thr?.value ?? 2000000)}
         canDisburse={can(actor, "disburse", { need: "full" }).ok} />
     </Shell>);

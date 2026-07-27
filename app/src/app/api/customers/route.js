@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
-import { tx, audit } from "@/lib/db.js";
+import { tx, audit, one } from "@/lib/db.js";
 import { validateNewCustomer, blacklistState } from "@/lib/customer.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,6 +10,12 @@ export const dynamic = "force-dynamic";
  * Create a customer. Everything lands in ONE transaction: the customer, their
  * addresses, photo, documents with scans, nominee, banks — or nothing at all.
  */
+/** The screen shows "Low"; the database stores "low". Never let a label become a value. */
+function normEnum(value, allowed) {
+  const v = String(value ?? "").trim().toLowerCase();
+  return allowed.includes(v) ? v : null;
+}
+
 export async function POST(req) {
   const actor = await currentActor();
   if (!actor) return NextResponse.json({ ok: false, reason: "Signed out" }, { status: 401 });
@@ -33,15 +39,15 @@ export async function POST(req) {
         `INSERT INTO customer (cust_no, cust_type, first_name, middle_name, last_name, gender, dob,
            relative_name, mobile, alt_mobile, email, app_access, aadhaar_last4, aadhaar_verified_at,
            pan_no, pan_verified_at, gstin, risk, kyc_done_at, max_open_loans, max_outstanding_paise,
-           blacklist_narration, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,CURRENT_DATE,$19,$20,$21,$22)
+           blacklist_narration, created_by, mobile_verified_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,CURRENT_DATE,$19,$20,$21,$22,$23)
          RETURNING id, cust_no, full_name, is_blacklisted`,
         [no, c.custType || "individual", c.firstName.trim(), c.middleName?.trim() || null, c.lastName.trim(),
-         c.gender, c.dob, c.relativeName?.trim() || null, c.mobile, c.altMobile || null,
+         normEnum(c.gender, ["male","female","other"]), c.dob, c.relativeName?.trim() || null, c.mobile, c.altMobile || null,
          c.email || null, !!c.appAccess, String(c.aadhaar).slice(-4), c.aadhaarVerified ? new Date() : null,
          c.pan.toUpperCase(), c.panVerified ? new Date() : null, c.gstin?.toUpperCase() || null,
-         c.risk || null, Number(c.maxOpenLoans), Number(c.maxOutstandingPaise),
-         c.narration?.trim() || null, actor.employeeId]);
+         normEnum(c.risk, ["low","medium","high"]), Number(c.maxOpenLoans), Number(c.maxOutstandingPaise),
+         c.narration?.trim() || null, actor.employeeId, c.mobileVerified ? new Date() : null]);
 
       const cid = cust.id;
       const addr = (kind, a, same) => cl.query(
@@ -55,7 +61,7 @@ export async function POST(req) {
       await cl.query(`INSERT INTO customer_photo (customer_id, file_id, is_current) VALUES ($1,$2,TRUE)`,
         [cid, c.photoFileId]);
 
-      for (const d of [...(c.idDocs || []), ...(c.addrDocs || [])]) {
+      for (const d of (c.docs || [])) {
         if (!d.docTypeId || !d.number?.trim()) continue;
         const { rows: [doc] } = await cl.query(
           `INSERT INTO customer_document (customer_id, doc_type_id, number, expiry_d) VALUES ($1,$2,$3,$4) RETURNING id`,
@@ -63,6 +69,18 @@ export async function POST(req) {
         for (const fid of d.scans || [])
           await cl.query(`INSERT INTO customer_document_scan (customer_document_id, file_id) VALUES ($1,$2)`,
             [doc.id, fid]);
+      }
+
+      for (const [label, list] of [["Aadhaar Card", c.aadhaarScans], ["PAN Card", c.panScans]]) {
+        if (!list?.length) continue;
+        const dt = await one(`SELECT id FROM document_type WHERE name=$1 AND category='id_proof' LIMIT 1`, [label]);
+        if (!dt) continue;
+        const { rows: [doc] } = await cl.query(
+          `INSERT INTO customer_document (customer_id, doc_type_id, number) VALUES ($1,$2,$3) RETURNING id`,
+          [cid, dt.id, label === "Aadhaar Card" ? String(c.aadhaar).slice(-4) : (c.pan || "").toUpperCase()]);
+        for (const f of list)
+          await cl.query(`INSERT INTO customer_document_scan (customer_document_id, file_id) VALUES ($1,$2)`,
+            [doc.id, f.fileId ?? f]);
       }
 
       await cl.query(`INSERT INTO nominee (customer_id, name, relation, mobile) VALUES ($1,$2,$3,$4)`,

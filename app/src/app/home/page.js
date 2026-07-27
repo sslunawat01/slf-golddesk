@@ -14,9 +14,7 @@ export default async function Home() {
   const desks = visibleDesks(actor);
   const authority = sanctionAuthority(actor);
 
-  const rate = await one(
-    `SELECT base_paise, rate_date FROM daily_rate
-      WHERE rate_date = CURRENT_DATE AND metal_id = 1 ORDER BY published_at DESC LIMIT 1`);
+  const rate = await one(`SELECT base_paise, rate_date FROM rate_in_force(1, CURRENT_DATE)`);
   const counts = await one(
     `SELECT (SELECT count(*) FROM loan WHERE status='active' AND branch_id=$1)::int AS active_loans,
             (SELECT count(*) FROM release r JOIN loan l ON l.id=r.loan_id
@@ -51,11 +49,11 @@ export default async function Home() {
               ? <a href="/hq/rate" className="mono" style={{ background: rate ? "#123227" : "#fdf1d8",
                   color: rate ? "var(--brass-soft)" : "#a06407", padding: "6px 12px", borderRadius: 99,
                   fontWeight: 800, fontSize: 13, textDecoration: "none" }}>
-                  {rate ? inr(rate.base_paise) + "/g" : "rate not published →"}</a>
+                  {rate ? inr(rate.base_paise) + "/g" : "rate not set →"}</a>
               : <span className="mono" style={{ background: rate ? "#123227" : "#fdf1d8",
                   color: rate ? "var(--brass-soft)" : "#a06407", padding: "6px 12px", borderRadius: 99,
                   fontWeight: 800, fontSize: 13 }}>
-                  {rate ? inr(rate.base_paise) + "/g" : "rate not published"}</span>}
+                  {rate ? inr(rate.base_paise) + "/g" : "rate not set"}</span>}
             <form action="/api/auth/logout" method="post">
               <button className="btn ghost" style={{ padding: "8px 14px", fontSize: 13 }}>Sign out</button>
             </form>

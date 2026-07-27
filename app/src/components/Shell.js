@@ -11,9 +11,7 @@ export default async function Shell({ children, title }) {
   if (!actor) redirect("/login?expired=1");
   if (actor.forceChange) redirect("/setpw");
   const desks = visibleDesks(actor);
-  const rate = await one(
-    `SELECT base_paise FROM daily_rate WHERE rate_date = CURRENT_DATE AND metal_id = 1
-     ORDER BY published_at DESC LIMIT 1`);
+  const rate = await one(`SELECT base_paise, rate_date FROM rate_in_force(1, CURRENT_DATE)`);
 
   const nav = [["/home", "⌂ Home"], ...(desks.reports ? [["/search", "Search"]] : [])];
 
@@ -40,7 +38,7 @@ export default async function Shell({ children, title }) {
             <span className="mono" style={{
               background: rate ? "#123227" : "#fdf1d8", color: rate ? "var(--brass-soft)" : "#a06407",
               padding: "6px 12px", borderRadius: 99, fontWeight: 800, fontSize: 13 }}>
-              {rate ? inr(rate.base_paise) + "/g" : "rate not published"}</span>
+              {rate ? inr(rate.base_paise) + "/g" : "rate not set"}</span>
             <form action="/api/auth/logout" method="post">
               <button className="btn ghost" style={{ padding: "8px 14px", fontSize: 13 }}>Sign out</button>
             </form>

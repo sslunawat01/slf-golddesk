@@ -19,7 +19,7 @@ async function compress(file, maxEdge, quality) {
 }
 
 export default function PhotoInput({ kind, label, square = false, multiple = false,
-                                     value, onChange, hint }) {
+                                     value, onChange, hint, compact = false }) {
   const ref = useRef(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -48,9 +48,21 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
     if (ref.current) ref.current.value = "";
   }
 
-  const box = square
-    ? { width: 128, height: 128, borderRadius: 14 }
-    : { width: 96, height: 72, borderRadius: 10 };
+  const box = compact
+    ? { width: 34, height: 34, borderRadius: 8 }
+    : square ? { width: 128, height: 128, borderRadius: 14 }
+             : { width: 96, height: 72, borderRadius: 10 };
+
+  if (compact) return (
+    <>
+      <button type="button" disabled={busy} onClick={() => ref.current?.click()} title="add photo"
+        style={{ border: "1px solid #cfc9ba", background: "#fff", borderRadius: 9, padding: "6px 10px",
+          minHeight: 34, cursor: "pointer", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>
+        {busy ? "…" : "📷"}</button>
+      {err && <span className="chip bad" style={{ marginLeft: 6 }}>{err}</span>}
+      <input ref={ref} type="file" accept="image/*" capture="environment" multiple={multiple}
+        style={{ display: "none" }} onChange={pick} />
+    </>);
 
   return (
     <div>

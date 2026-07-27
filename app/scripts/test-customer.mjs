@@ -1,4 +1,4 @@
-import { kycStatus, blacklistState, mayLend, fullName, isMobile, isAadhaar, isPan,
+import { kycStatus, blacklistState, mayLend, fullName, isMobile, isAadhaar, isPan, isGst,
          isIfsc, isPincode, bankPayable, validateNewCustomer, rankSearch } from "../src/lib/customer.js";
 
 let pass = 0, fail = 0;
@@ -67,46 +67,88 @@ console.log("\n§5 Bank payability (R19)");
   eq("cheque claimed without photo refused", bankPayable({ verifyMethod: "cheque_photo" }).ok, false);
 }
 
-console.log("\n§6 New-customer validation");
+console.log("\n§6 New-customer validation — the frozen 5-tab form");
 {
-  const good = {
-    firstName: "Sunil", lastName: "Deshmukh", dob: "1988-04-12", gender: "male",
-    aadhaar: "123412341234", aadhaarVerified: true, pan: "AXXPP1938K", panVerified: true,
-    photoFileId: 7, mobile: "9822011223",
-    current: { line1: "12 Gandhi Rd", pincode: "422502" }, sameAsCurrent: true,
-    idDocs: [{ docTypeId: 1, number: "1234", scans: [1] }],
-    addrDocs: [{ docTypeId: 7, number: "EB-1", scans: [2] }],
-    nominee: { name: "Anita Deshmukh", relation: "Wife" },
-    maxOpenLoans: 3, maxOutstandingPaise: 50000000, narration: "", banks: [],
+  // Aadhaar route: a verified Aadhaar proves identity AND address, so no extra document
+  const aadhaarRoute = {
+    firstName: "Sunita", lastName: "Pawar", dob: "1979-03-14", gender: "female", custType: "individual",
+    aadhaar: "482913756204", aadhaarVerified: true, pan: "", panVerified: false,
+    photoFileId: 7, mobile: "9421338071",
+    current: { line1: "12 Shivneri Colony", pincode: "422502" }, sameAsCurrent: true,
+    docs: [], banks: [],
+    nominee: { name: "Ramesh Pawar", relation: "Husband" },
+    maxOpenLoans: 3, maxOutstandingPaise: 30000000, narration: "",
   };
-  eq("complete form passes", validateNewCustomer(good).ok, true);
-  eq("no photo blocks", validateNewCustomer({ ...good, photoFileId: null }).missing.identity, ["live photo"]);
-  eq("unverified Aadhaar blocks", validateNewCustomer({ ...good, aadhaarVerified: false }).missing.identity,
-     ["Aadhaar verification"]);
-  eq("bad mobile blocks", validateNewCustomer({ ...good, mobile: "12345" }).missing.contact, ["mobile number"]);
-  eq("permanent address required when not same",
-     validateNewCustomer({ ...good, sameAsCurrent: false, permanent: {} }).missing.address,
+  eq("Aadhaar alone is enough", validateNewCustomer(aadhaarRoute).ok, true);
+  eq("no separate document demanded with Aadhaar",
+     validateNewCustomer(aadhaarRoute).missing.documents, []);
+
+  // PAN route: identity proven, address not — one address document required
+  const panRoute = { ...aadhaarRoute, aadhaar: "", aadhaarVerified: false,
+    pan: "AKQPP4821L", panVerified: true };
+  eq("PAN alone needs an address document",
+     validateNewCustomer(panRoute).missing.documents, ["address document with photo"]);
+  eq("PAN plus a document passes",
+     validateNewCustomer({ ...panRoute, docs: [{ docTypeId: 7, number: "MSEB-1", scans: [3] }] }).ok, true);
+
+  // neither
+  eq("neither Aadhaar nor PAN",
+     validateNewCustomer({ ...aadhaarRoute, aadhaar: "", aadhaarVerified: false }).missing.identity,
+     ["Aadhaar or PAN", "one document with photo"].slice(0, 1));
+  eq("unverified Aadhaar asks for verification",
+     validateNewCustomer({ ...aadhaarRoute, aadhaarVerified: false }).missing.identity, ["Aadhaar verify"]);
+
+  // GST is optional for everyone, corporate included
+  const corp = { ...aadhaarRoute, custType: "corporate" };
+  eq("corporate saves without GST", validateNewCustomer(corp).ok, true);
+  eq("corporate with GST also saves",
+     validateNewCustomer({ ...corp, gstin: "27ABCDE1234F1Z5", gstVerified: true }).ok, true);
+  eq("GST format checker", isGst("27ABCDE1234F1Z5"), true);
+  eq("bad GST rejected", isGst("27ABCDE1234F1X5"), false);
+
+  // contact tab carries the address
+  eq("address missing shows under contact",
+     validateNewCustomer({ ...aadhaarRoute, current: { line1: "", pincode: "" } }).missing.contact,
+     ["address line 1", "pincode"]);
+  eq("permanent address required when different",
+     validateNewCustomer({ ...aadhaarRoute, sameAsCurrent: false, permanent: {} }).missing.contact,
      ["permanent address line 1", "permanent pincode"]);
-  eq("ID proof without a photo blocks",
-     validateNewCustomer({ ...good, idDocs: [{ docTypeId: 1, number: "1234", scans: [] }] }).missing.documents,
-     ["ID proof with number and photo"]);
-  eq("nominee required", validateNewCustomer({ ...good, nominee: {} }).missing.nominee,
-     ["nominee name", "nominee relation"]);
-  eq("zero limit demands narration",
-     validateNewCustomer({ ...good, maxOpenLoans: 0 }).missing.limits,
-     ["narration (a zero limit blacklists this customer)"]);
-  eq("zero limit with narration passes",
-     validateNewCustomer({ ...good, maxOpenLoans: 0, narration: "cheque dishonoured twice" }).ok, true);
-  eq("blacklist flag surfaces", validateNewCustomer({ ...good, maxOpenLoans: 0 }).isBlacklisted, true);
-  eq("unverified bank blocks",
-     validateNewCustomer({ ...good, banks: [{ ifsc: "KKBK0001896", accountNo: "999", holderName: "Sunil" }] })
-       .missing.bank, ["account 1: verification or cheque photo"]);
+  eq("duplicate mobile blocks",
+     validateNewCustomer({ ...aadhaarRoute, mobileDuplicate: true }).missing.contact, ["duplicate mobile"]);
+  eq("mobile OTP is NOT compulsory (SMS not connected)",
+     validateNewCustomer({ ...aadhaarRoute, mobileVerified: false }).ok, true);
+  eq("no photo blocks", validateNewCustomer({ ...aadhaarRoute, photoFileId: null }).missing.identity,
+     ["live photo"]);
+
+  // banks live in the documents tab
+  eq("unverified bank blocks under documents",
+     validateNewCustomer({ ...aadhaarRoute,
+       banks: [{ ifsc: "KKBK0001896", accountNo: "999", holderName: "Sunita" }] }).missing.documents,
+     ["account 1: verify/cheque"]);
   eq("verified bank passes",
-     validateNewCustomer({ ...good, banks: [{ ifsc: "KKBK0001896", accountNo: "999",
-       holderName: "Sunil", verifiedAt: "2026-07-26" }] }).ok, true);
+     validateNewCustomer({ ...aadhaarRoute, banks: [{ ifsc: "KKBK0001896", accountNo: "999",
+       holderName: "Sunita", verifiedAt: "2026-07-27" }] }).ok, true);
+  eq("cheque fallback passes",
+     validateNewCustomer({ ...aadhaarRoute, banks: [{ ifsc: "KKBK0001896", accountNo: "999",
+       holderName: "Other Name", verifyMethod: "cheque_photo", chequeFileId: 4 }] }).ok, true);
   eq("empty bank row ignored",
-     validateNewCustomer({ ...good, banks: [{ ifsc: "", accountNo: "" }] }).ok, true);
-  eq("first missing item is reported", validateNewCustomer({ ...good, firstName: "" }).first, "first name");
+     validateNewCustomer({ ...aadhaarRoute, banks: [{ ifsc: "", accountNo: "" }] }).ok, true);
+
+  // nominee & limits
+  eq("nominee required", validateNewCustomer({ ...aadhaarRoute, nominee: {} }).missing.nominee,
+     ["nominee name", "nominee relation"]);
+  eq("nominee mobile length checked",
+     validateNewCustomer({ ...aadhaarRoute, nominee: { name: "R", relation: "Husband", mobile: "94213" } })
+       .missing.nominee, ["nominee mobile — 10 digits"]);
+  eq("zero limit demands narration",
+     validateNewCustomer({ ...aadhaarRoute, maxOpenLoans: 0 }).missing.limits,
+     ["narration for zero limit"]);
+  eq("zero limit with narration passes",
+     validateNewCustomer({ ...aadhaarRoute, maxOpenLoans: 0, narration: "cheque dishonoured twice" }).ok, true);
+  eq("blacklist flag surfaces",
+     validateNewCustomer({ ...aadhaarRoute, maxOpenLoans: 0 }).isBlacklisted, true);
+  eq("first missing item is reported",
+     validateNewCustomer({ ...aadhaarRoute, firstName: "" }).first, "first name");
 }
 
 console.log("\n§7 Search ranking — loan numbers win");
@@ -125,6 +167,22 @@ console.log("\n§7 Search ranking — loan numbers win");
       { custNo: "IND0012619", fullName: "Prathmesh Kasar", mobile: "7709046316" },
       { custNo: "IND0009402", fullName: "Komal Mali", mobile: "8975249307" }] });
   eq("name prefix ranks first", byName[0].custNo, "IND0009402");
+}
+
+console.log("\n§8 Enum values must never carry display capitalisation");
+{
+  const norm = (v, allowed) => { const x = String(v ?? "").trim().toLowerCase();
+    return allowed.includes(x) ? x : null; };
+  const RISK = ["low","medium","high"], GENDER = ["male","female","other"],
+        TYPE = ["individual","corporate","huf","partnership","trust"];
+  eq("'Low' becomes 'low'", norm("Low", RISK), "low");
+  eq("'HIGH' becomes 'high'", norm("HIGH", RISK), "high");
+  eq("already lowercase passes", norm("medium", RISK), "medium");
+  eq("blank becomes null", norm("", RISK), null);
+  eq("nonsense becomes null instead of breaking the insert", norm("Very High", RISK), null);
+  eq("'Male' becomes 'male'", norm("Male", GENDER), "male");
+  eq("'Corporate' becomes 'corporate'", norm("Corporate", TYPE), "corporate");
+  eq("'Trust / society' is not a value", norm("Trust / society", TYPE), null);
 }
 
 console.log(`\n${pass} passed · ${fail} failed`);

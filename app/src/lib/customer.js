@@ -69,50 +69,73 @@ export function bankPayable(acct) {
   return { ok: false, reason: "unverified — cannot receive disbursement" };
 }
 
+/** GST: 27ABCDE1234F1Z5 — 2 digits, 5 letters, 4 digits, letter, digit, Z, 1 char. */
+export const isGst = (s) => /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/.test(String(s || "").toUpperCase());
+
 /**
- * Everything the 7-tab form must have before Save. Returns the missing items,
- * grouped by tab, in the order the operator will meet them.
+ * Validation for the New Customer form, tab by tab, exactly as the frozen UX defines it.
+ *
+ * Structure (5 tabs): Identity · Contact · Documents · Nominee · Loan settings
+ *  · Identity — Aadhaar OR PAN verified is enough; both are never demanded.
+ *    Corporate additionally needs a verified GST.
+ *  · Contact — mobile and the current address live together; permanent address
+ *    only when it differs. Mobile OTP is optional until the SMS gateway is live.
+ *  · Documents — KYC documents AND the customer's bank accounts.
+ *    A verified Aadhaar already proves identity and address, so no separate
+ *    document is demanded; with only PAN verified, an address document is.
  */
 export function validateNewCustomer(c) {
-  const miss = { identity: [], contact: [], address: [], documents: [], nominee: [], limits: [], bank: [] };
+  const miss = { identity: [], contact: [], documents: [], nominee: [], limits: [] };
 
+  // —— tab 0 · identity ——
   if (!c.firstName?.trim()) miss.identity.push("first name");
   if (!c.lastName?.trim()) miss.identity.push("last name");
   if (!c.dob) miss.identity.push("date of birth");
   if (!c.gender) miss.identity.push("gender");
-  if (!isAadhaar(c.aadhaar)) miss.identity.push("Aadhaar number");
-  else if (!c.aadhaarVerified) miss.identity.push("Aadhaar verification");
-  if (!isPan(c.pan)) miss.identity.push("PAN");
-  else if (!c.panVerified) miss.identity.push("PAN verification");
+  if (!c.custType) miss.identity.push("customer type");
+
+  const aadhaarOk = isAadhaar(c.aadhaar) && c.aadhaarVerified;
+  const panOk = isPan(c.pan) && c.panVerified;
+  if (!aadhaarOk && !panOk) {
+    if (c.aadhaar?.length && !isAadhaar(c.aadhaar)) miss.identity.push("Aadhaar number");
+    else if (isAadhaar(c.aadhaar)) miss.identity.push("Aadhaar verify");
+    else if (c.pan?.length && !isPan(c.pan)) miss.identity.push("PAN number");
+    else if (isPan(c.pan)) miss.identity.push("PAN verify");
+    else miss.identity.push("Aadhaar or PAN");
+  }
+  // GST is never compulsory — it is captured when the customer has one
   if (!c.photoFileId) miss.identity.push("live photo");
 
+  // —— tab 1 · contact (mobile + address) ——
   if (!isMobile(c.mobile)) miss.contact.push("mobile number");
-  if (c.altMobile && !isMobile(c.altMobile)) miss.contact.push("alternate mobile is not valid");
-
-  if (!c.current?.line1?.trim()) miss.address.push("address line 1");
-  if (!isPincode(c.current?.pincode)) miss.address.push("pincode");
+  else if (c.mobileDuplicate) miss.contact.push("duplicate mobile");
+  if (c.altMobile && !isMobile(c.altMobile)) miss.contact.push("alternate mobile — 10 digits");
+  if (!c.current?.line1?.trim()) miss.contact.push("address line 1");
+  if (!isPincode(c.current?.pincode)) miss.contact.push("pincode");
   if (!c.sameAsCurrent) {
-    if (!c.permanent?.line1?.trim()) miss.address.push("permanent address line 1");
-    if (!isPincode(c.permanent?.pincode)) miss.address.push("permanent pincode");
+    if (!c.permanent?.line1?.trim()) miss.contact.push("permanent address line 1");
+    if (!isPincode(c.permanent?.pincode)) miss.contact.push("permanent pincode");
   }
 
-  const hasDoc = (list) => (list || []).some(d => d.docTypeId && d.number?.trim() && (d.scans || []).length > 0);
-  if (!hasDoc(c.idDocs)) miss.documents.push("ID proof with number and photo");
-  if (!hasDoc(c.addrDocs)) miss.documents.push("address proof with number and photo");
+  // —— tab 2 · documents + banks ——
+  const doneDocs = (c.docs || []).filter(d => d.docTypeId && d.number?.trim() && (d.scans || []).length > 0).length;
+  if (!aadhaarOk && doneDocs < 1)
+    miss.documents.push(panOk ? "address document with photo" : "one document with photo");
+  for (const [i, b] of (c.banks || []).entries()) {
+    if (!b.accountNo?.trim()) continue;
+    if (!isIfsc(b.ifsc)) miss.documents.push(`account ${i + 1}: IFSC`);
+    else if (!b.holderName?.trim()) miss.documents.push(`account ${i + 1}: holder name`);
+    else if (!bankPayable(b).ok) miss.documents.push(`account ${i + 1}: verify/cheque`);
+  }
 
+  // —— tab 3 · nominee ——
   if (!c.nominee?.name?.trim()) miss.nominee.push("nominee name");
   if (!c.nominee?.relation) miss.nominee.push("nominee relation");
+  if (c.nominee?.mobile && !isMobile(c.nominee.mobile)) miss.nominee.push("nominee mobile — 10 digits");
 
+  // —— tab 4 · loan settings ——
   const bl = blacklistState(c.maxOpenLoans, c.maxOutstandingPaise, c.narration);
-  if (!bl.ok) miss.limits.push("narration (a zero limit blacklists this customer)");
-
-  for (const [i, b] of (c.banks || []).entries()) {
-    if (!b.accountNo?.trim() && !b.ifsc?.trim()) continue;
-    if (!isIfsc(b.ifsc)) miss.bank.push(`account ${i + 1}: IFSC`);
-    if (!b.accountNo?.trim()) miss.bank.push(`account ${i + 1}: account number`);
-    if (!b.holderName?.trim()) miss.bank.push(`account ${i + 1}: holder name`);
-    else if (!bankPayable(b).ok) miss.bank.push(`account ${i + 1}: verification or cheque photo`);
-  }
+  if (!bl.ok) miss.limits.push("narration for zero limit");
 
   const all = Object.values(miss).flat();
   return { ok: all.length === 0, missing: miss, count: all.length,

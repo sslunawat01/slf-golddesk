@@ -19,10 +19,9 @@ export async function POST(req) {
   const { customerId } = await req.json().catch(() => ({}));
   const today = new Date().toISOString().slice(0, 10);
 
-  const rate = await one(`SELECT base_paise FROM daily_rate
-     WHERE rate_date = CURRENT_DATE AND metal_id = 1 ORDER BY published_at DESC LIMIT 1`);
+  const rate = await one(`SELECT base_paise, funding_paise FROM rate_in_force(1, CURRENT_DATE)`);
   if (!rate) return NextResponse.json({ ok: false,
-    reason: "Today's rate is not published — branches are locked for new lending" }, { status: 409 });
+    reason: "No gold rate has been set — branches are locked for new lending" }, { status: 409 });
 
   const c = await one(`SELECT id, is_blacklisted, kyc_done_at, max_open_loans, max_outstanding_paise
      FROM customer WHERE id = $1`, [customerId]);
@@ -42,14 +41,16 @@ export async function POST(req) {
     [customerId, actor.actingBranchId]);
   if (draft) return NextResponse.json({ ok: true, id: Number(draft.id), resumed: true });
 
+  try {
   const out = await tx(async (cl) => {
     const appNo = await issueNumber(cl, { entityId: actor.actingBranch.entityId,
       branchId: actor.actingBranchId, docType: "application", fy: fy() });
     const { rows: [a] } = await cl.query(
       `INSERT INTO loan_application (app_no, entity_id, branch_id, customer_id, status,
-         rate_date, base_paise_snapshot, created_by)
-       VALUES ($1,$2,$3,$4,'draft',CURRENT_DATE,$5,$6) RETURNING id`,
-      [appNo, actor.actingBranch.entityId, actor.actingBranchId, customerId, rate.base_paise, actor.employeeId]);
+         rate_date, base_paise_snapshot, funding_paise_snapshot, created_by)
+       VALUES ($1,$2,$3,$4,'draft',CURRENT_DATE,$5,$6,$7) RETURNING id`,
+      [appNo, actor.actingBranch.entityId, actor.actingBranchId, customerId,
+       rate.base_paise, rate.funding_paise, actor.employeeId]);
     await cl.query(`INSERT INTO loan_state_history (application_id, to_state, by_employee, note)
                     VALUES ($1,'draft',$2,'pledge started')`, [a.id, actor.employeeId]);
     await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
@@ -58,4 +59,9 @@ export async function POST(req) {
   }, { entityIds: actor.entityIds });
 
   return NextResponse.json({ ok: true, ...out });
+  } catch (e) {
+    console.error("[applications] start failed", e);
+    return NextResponse.json({ ok: false,
+      reason: "Could not start the pledge — " + (e.message || "unknown error") }, { status: 500 });
+  }
 }

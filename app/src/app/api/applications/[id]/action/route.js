@@ -25,6 +25,7 @@ async function loadApp(id, branchId) {
 }
 
 export async function POST(req, { params }) {
+  try {
   const actor = await currentActor();
   if (!actor) return NextResponse.json({ ok: false, reason: "Signed out" }, { status: 401 });
   const { id } = await params;
@@ -189,4 +190,9 @@ export async function POST(req, { params }) {
   }
 
   return NextResponse.json({ ok: false, reason: "Unknown action" }, { status: 400 });
+  } catch (e) {
+    console.error("[application action] failed", e);
+    return NextResponse.json({ ok: false,
+      reason: "The action failed — " + (e.message || "unknown error") + " (nothing was saved)" }, { status: 500 });
+  }
 }

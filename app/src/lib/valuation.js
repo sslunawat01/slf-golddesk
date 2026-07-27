@@ -19,20 +19,32 @@ export function ratePerGram(base24kPaise, purityPct) {
   return (base24kPaise * purityPct) / 100;
 }
 
-/** Lendable rate per gram under a scheme's funding percentage. */
-export function fundingRatePerGram(base24kPaise, purityPct, fundingPct) {
-  return (ratePerGram(base24kPaise, purityPct) * fundingPct) / 100;
+/** Lendable rate per gram: funding rate × purity × the scheme's funding %. */
+export function fundingRatePerGram(funding24kPaise, purityPct, fundingPct) {
+  return (ratePerGram(funding24kPaise, purityPct) * fundingPct) / 100;
+}
+
+/** The haircut between the two published rates, as ₹/g and a percentage. */
+export function haircut(base24kPaise, funding24kPaise) {
+  const gapPaise = base24kPaise - funding24kPaise;
+  return { gapPaise, pct: base24kPaise ? (gapPaise / base24kPaise) * 100 : 0 };
 }
 
 /**
  * One ornament row.
- * Market and funding are each computed from the exact figure and rounded up
- * independently, so both numbers shown to the customer are honest on their own.
+ *
+ * Two independent rates are in play (owner's rate screen):
+ *   · market rate  — what the ornament is worth today; shown to the customer
+ *   · funding rate — what we are willing to lend against; always ≤ market.
+ *     The gap between them is the haircut, taken BEFORE the scheme's funding %.
+ * Each value is rounded up to ₹100 on its own, so both figures are honest.
  */
-export function ornamentValue({ grossMg, stoneMg = 0, purityPct, base24kPaise, fundingPct }) {
+export function ornamentValue({ grossMg, stoneMg = 0, purityPct, base24kPaise,
+                                funding24kPaise, fundingPct }) {
   const netMg = Math.max(0, Math.round(grossMg) - Math.round(stoneMg));
+  const fundingRate = funding24kPaise ?? base24kPaise;   // older rows had one rate
   const rawMarket = (netMg * base24kPaise * purityPct) / (100 * 1000);
-  const rawFunding = (rawMarket * fundingPct) / 100;
+  const rawFunding = ((netMg * fundingRate * purityPct) / (100 * 1000)) * fundingPct / 100;
   return {
     netMg,
     rawMarketPaise: rawMarket,

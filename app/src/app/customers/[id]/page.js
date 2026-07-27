@@ -3,6 +3,7 @@ import { one, q } from "@/lib/db.js";
 import { kycStatus, mayLend } from "@/lib/customer.js";
 import { viewUrl } from "@/lib/s3.js";
 import { notFound } from "next/navigation";
+import NewPledgeButton from "@/components/NewPledgeButton.js";
 export const dynamic = "force-dynamic";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
@@ -87,11 +88,7 @@ export default async function Customer360({ params, searchParams }) {
 
           <div style={{ marginTop: 16 }}>
             {lend.ok
-              ? <form action="/api/pledge-start" method="post">
-                  <input type="hidden" name="customerId" value={c.id} />
-                  <button className="btn" style={{ width: "100%", background: "var(--brass)",
-                    color: "var(--vault)" }}>+ New pledge</button>
-                </form>
+              ? <NewPledgeButton customerId={Number(c.id)} />
               : <div><span className="chip bad" style={{ display: "block", textAlign: "center",
                   padding: "10px" }}>{lend.reason}</span></div>}
           </div>

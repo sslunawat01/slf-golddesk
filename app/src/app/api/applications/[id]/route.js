@@ -46,6 +46,7 @@ export async function PATCH(req, { params }) {
         const pur = await one(`SELECT purity_pct FROM purity WHERE id=$1`, [r.purityId]);
         const v = ornamentValue({ grossMg: Number(r.grossMg), stoneMg: Number(r.stoneMg || 0),
           purityPct: Number(pur.purity_pct), base24kPaise: Number(app.base_paise_snapshot),
+          funding24kPaise: Number(app.funding_paise_snapshot ?? app.base_paise_snapshot),
           fundingPct: Number(scheme?.funding_pct ?? 0) });
         await cl.query(
           `INSERT INTO appraisal_item (application_id, item_id, qty, gross_mg, stone_mg, purity_id,

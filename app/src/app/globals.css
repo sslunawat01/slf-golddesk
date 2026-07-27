@@ -17,8 +17,37 @@ body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-se
 .btn.ghost{background:#fff;border:1px solid #cfc9ba;color:#5f5b4f}
 .btn:disabled{opacity:.4;cursor:not-allowed}
 label.f{display:block;font-size:11px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;color:var(--mut);margin:0 0 6px}
-input.i{width:100%;border:1px solid #cfc9ba;border-radius:10px;padding:12px 14px;font-size:15px;background:#fff;color:var(--ink)}
-input.i:focus{outline:2px solid var(--vault3);border-color:var(--vault3)}
+/* ── form controls: inputs, selects and textareas share one look ── */
+input.i,textarea.i,select.i{
+  width:100%;border:1px solid #cfc9ba;border-radius:10px;padding:11px 13px;font-size:15px;
+  background:#fff;color:var(--ink);font-family:inherit;line-height:1.35;
+  transition:border-color .12s,box-shadow .12s}
+input.i:focus,textarea.i:focus,select.i:focus{
+  outline:none;border-color:var(--vault3);box-shadow:0 0 0 3px rgba(27,68,52,.13)}
+input.i:hover:not(:disabled),select.i:hover:not(:disabled){border-color:#a9a292}
+input.i:disabled,select.i:disabled,textarea.i:disabled{background:#f4f2ec;color:#9a9486;cursor:not-allowed}
+input.i::placeholder{color:#b5afa0}
+
+/* selects: the browser's native arrow never matches the rest, so draw our own */
+select.i{
+  appearance:none;-webkit-appearance:none;-moz-appearance:none;
+  padding-right:38px;cursor:pointer;
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%237d786c' stroke-width='1.8' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 13px center;background-size:12px 8px}
+select.i:focus{
+  background-image:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5 11 1.5' stroke='%231b4434' stroke-width='2' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")}
+select.i:disabled{background-image:none}
+/* an unchosen select reads as a placeholder, not as a value */
+select.i:has(option[value=""]:checked){color:#b5afa0}
+select.i option{color:var(--ink);background:#fff;padding:8px}
+select.i option[value=""]{color:#b5afa0}
+/* date fields: same height and a tappable picker icon */
+input.i[type="date"]{min-height:46px}
+input.i[type="date"]::-webkit-calendar-picker-indicator{cursor:pointer;opacity:.55;padding:2px}
+input.i[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:1}
+/* compact variant used inside data grids */
+.grid-cell input.i,.grid-cell select.i{padding:8px 10px;font-size:13.5px}
+.grid-cell select.i{padding-right:30px;background-position:right 9px center}
 .signin{min-height:100dvh;background:var(--vault);display:grid;place-items:center;padding:20px}
 .signin .box{width:min(420px,94vw)}
 .brand{font-size:26px;font-weight:900;letter-spacing:-.5px;color:#fff;text-align:center}

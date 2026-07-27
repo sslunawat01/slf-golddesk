@@ -8,10 +8,16 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 
-for (const line of fs.readFileSync(new URL("../../.env", import.meta.url), "utf8").split("\n")) {
+const envPath = [new URL("../../.env", import.meta.url).pathname,
+                 new URL("../.env", import.meta.url).pathname].find(f => fs.existsSync(f));
+for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
   const m = line.match(/^([A-Z_]+)=(.*)$/); if (m) process.env[m[1]] ??= m[2];
 }
-const dir = new URL("../../db/migrations/", import.meta.url).pathname;
+// prefer the folder shipped with the app; fall back to the repo-level one
+const candidates = [new URL("../db/migrations/", import.meta.url).pathname,
+                    new URL("../../db/migrations/", import.meta.url).pathname];
+const dir = candidates.find(d => fs.existsSync(d)) || candidates[0];
+console.log("migrations folder:", dir);
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 
 await pool.query(`CREATE TABLE IF NOT EXISTS schema_migration (

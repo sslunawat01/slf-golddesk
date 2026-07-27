@@ -1,33 +1,42 @@
-import { redirect } from "next/navigation";
+import Shell from "@/components/Shell.js";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { q, one } from "@/lib/db.js";
+import { rateLabel } from "@/lib/rate.js";
+import { redirect } from "next/navigation";
 import RateClient from "./RateClient.js";
 export const dynamic = "force-dynamic";
 
 export default async function RatePage() {
   const actor = await currentActor();
   if (!actor) redirect("/login?expired=1");
-  const mayMake  = can(actor, "rate_maker",  { need: "full" }).ok;
-  const mayCheck = can(actor, "rate_checker", { need: "full" }).ok;
-  if (!mayMake && !mayCheck) redirect("/home");
+  const mayPublish = can(actor, "rate_maker", { need: "full" }).ok;
+  if (!mayPublish && !can(actor, "reports", { need: "view" }).ok) redirect("/home");
 
-  const published = await one(
-    `SELECT dr.base_paise, dr.published_at, m.full_name AS maker, c.full_name AS checker
-       FROM daily_rate dr JOIN employee m ON m.id = dr.maker_id JOIN employee c ON c.id = dr.checker_id
-      WHERE dr.rate_date = CURRENT_DATE AND dr.metal_id = 1`);
-  const draft = await one(
-    `SELECT rd.base_paise, rd.created_at, e.full_name AS maker, rd.maker_id
-       FROM rate_draft rd JOIN employee e ON e.id = rd.maker_id
-      WHERE rd.rate_date = CURRENT_DATE AND rd.metal_id = 1`);
+  const today = new Date().toISOString().slice(0, 10);
+  const inForce = await one(`SELECT * FROM rate_in_force(1, CURRENT_DATE)`);
+  const setter = inForce ? await one(`SELECT full_name FROM employee WHERE id=$1`, [inForce.maker_id]) : null;
   const purities = await q(
-    `SELECT karat, purity_pct FROM purity WHERE metal_id = 1 AND active ORDER BY purity_pct DESC`);
+    `SELECT karat, purity_pct FROM purity WHERE metal_id=1 AND active ORDER BY purity_pct DESC`);
   const history = await q(
-    `SELECT dr.rate_date, dr.base_paise, m.full_name AS maker, c.full_name AS checker
-       FROM daily_rate dr JOIN employee m ON m.id = dr.maker_id JOIN employee c ON c.id = dr.checker_id
-      WHERE dr.metal_id = 1 ORDER BY dr.rate_date DESC LIMIT 10`);
+    `SELECT dr.rate_date, dr.base_paise, dr.funding_paise, dr.jump_pct, dr.jump_confirmed,
+            e.full_name AS setter
+       FROM daily_rate dr JOIN employee e ON e.id = dr.maker_id
+      WHERE dr.metal_id = 1 ORDER BY dr.rate_date DESC LIMIT 12`);
+  const warnPct = Number((await one(`SELECT value FROM app_setting WHERE key='rate_jump_warn_pct'`))?.value ?? 5);
 
-  return <RateClient
-    me={{ id: actor.employeeId, name: actor.fullName, mayMake, mayCheck }}
-    published={published} draft={draft} purities={purities} history={history} />;
+  return (
+    <Shell title="Gold rate">
+      <RateClient
+        mayPublish={mayPublish}
+        inForce={inForce ? { basePaise: Number(inForce.base_paise),
+          fundingPaise: Number(inForce.funding_paise ?? inForce.base_paise),
+          rateDate: inForce.rate_date, setter: setter?.full_name || "—" } : null}
+        label={rateLabel(inForce?.rate_date ?? null, today)}
+        purities={purities.map(p => ({ karat: p.karat, pct: Number(p.purity_pct) }))}
+        history={history.map(h => ({ ...h, base_paise: Number(h.base_paise),
+          funding_paise: Number(h.funding_paise ?? h.base_paise),
+          jump_pct: h.jump_pct === null ? null : Number(h.jump_pct) }))}
+        warnPct={warnPct} />
+    </Shell>);
 }

@@ -7,8 +7,9 @@ import { ornamentValue, appraisalTotals, validPrincipal, valuerRule,
 const g = (mg) => (Number(mg || 0) / 1000).toFixed(3);
 const mg = (grams) => Math.round(Number(grams || 0) * 1000);
 
-export default function WizardClient({ app, customer, items, purities, schemes, valuers,
-                                       banks, slfAccounts, ceilingPaise, base24k, valuer2Threshold, canDisburse }) {
+export default function WizardClient({ app, customer, items, purities, schemes, itemMaster, valuers,
+                                       banks, slfAccounts, ceilingPaise, base24k, funding24k,
+                                       valuer2Threshold, canDisburse }) {
   const [step, setStep] = useState(app.status === "approved" ? 3 : app.status === "pending_ho" ? 2 : 1);
   const [rows, setRows] = useState(items.length ? items : [newRow()]);
   const [photos, setPhotos] = useState(app.ornamentPhotos || []);
@@ -35,9 +36,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
     const p = purities.find(x => String(x.id) === String(r.purityId));
     if (!r.itemId || !r.gross || !p) return { ...r, netMg: 0, marketPaise: 0, fundingPaise: 0 };
     const v = ornamentValue({ grossMg: mg(r.gross), stoneMg: mg(r.stone), purityPct: Number(p.purityPct),
-      base24kPaise: base24k, fundingPct });
+      base24kPaise: base24k, funding24kPaise: funding24k, fundingPct });
     return { ...r, ...v, grossMg: mg(r.gross), stoneMg: mg(r.stone) };
-  }), [rows, purities, fundingPct, base24k]);
+  }), [rows, purities, fundingPct, base24k, funding24k]);
 
   const totals = appraisalTotals(priced);
   const principalPaise = Math.round(Number(amount || 0) * 100);
@@ -78,7 +79,10 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
     const r = await fetch(`/api/applications/${app.id}/action`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ action, ...extra }),
-    }).then(r => r.json()).catch(() => ({ ok: false, reason: "Network problem" }));
+    }).then(async r => {
+      const body = await r.json().catch(() => null);
+      return body ?? { ok: false, reason: `Server error ${r.status} — nothing was saved` };
+    }).catch(() => ({ ok: false, reason: "Cannot reach the server — check the connection" }));
     setBusy(false);
     if (!r.ok) { setChip({ tone: "bad", text: r.reason }); return; }
     if (action === "submit") { setStatus(r.status); setStep(3); setChip(r.needsHo
@@ -128,9 +132,10 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
               <tbody>
                 {priced.map((r, i) => (
                   <tr key={i} style={{ borderTop: "1px solid var(--line)" }}>
-                    <td style={{ padding: 6, minWidth: 150 }}>
+                    <td style={{ padding: 6, minWidth: 155 }} className="grid-cell">
                       <select className="i" value={r.itemId} onChange={e => patch(i, { itemId: e.target.value })}>
-                        <option value="" />{schemes.items?.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
+                        <option value="">— item —</option>
+                        {itemMaster.map(it => <option key={it.id} value={it.id}>{it.name}</option>)}
                       </select></td>
                     <td style={{ padding: 6, width: 70 }}>
                       <input className="i mono" value={r.qty} onChange={e => patch(i, { qty: e.target.value.replace(/\D/g,"") })} /></td>
@@ -141,9 +146,10 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                       <input className="i mono" value={r.stone}
                         onChange={e => patch(i, { stone: e.target.value.replace(/[^\d.]/g,"") })} /></td>
                     <td style={{ padding: 6 }} className="mono"><b>{g(r.netMg)}</b></td>
-                    <td style={{ padding: 6, minWidth: 110 }}>
+                    <td style={{ padding: 6, minWidth: 118 }} className="grid-cell">
                       <select className="i" value={r.purityId} onChange={e => patch(i, { purityId: e.target.value })}>
-                        <option value="" />{purities.map(p => <option key={p.id} value={p.id}>{p.karat}</option>)}
+                        <option value="">— purity —</option>
+                        {purities.map(p => <option key={p.id} value={p.id}>{p.karat}</option>)}
                       </select></td>
                     <td style={{ padding: 6 }} className="mono">{r.marketPaise ? inr(r.marketPaise) : "—"}</td>
                     <td style={{ padding: 6, color: "#a8791f", fontWeight: 800 }} className="mono">
@@ -182,11 +188,11 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             gap: 14, marginTop: 18, borderTop: "1px solid var(--line)", paddingTop: 16 }}>
             <div><label className="f">Valuer 1 *</label>
               <select className="i" value={v1} onChange={e => setV1(e.target.value)}>
-                <option value="" />{valuers.map(v => <option key={v.id} value={v.id}>{v.fullName}</option>)}
+                <option value="">— select valuer —</option>{valuers.map(v => <option key={v.id} value={v.id}>{v.fullName}</option>)}
               </select></div>
             <div><label className="f">Valuer 2 {principalPaise > valuer2Threshold ? "*" : "(optional)"}</label>
               <select className="i" value={v2} onChange={e => setV2(e.target.value)}>
-                <option value="" />{valuers.filter(v => String(v.id) !== String(v1))
+                <option value="">— none —</option>{valuers.filter(v => String(v.id) !== String(v1))
                   .map(v => <option key={v.id} value={v.id}>{v.fullName}</option>)}
               </select>
               <div className="hint" style={{ marginTop: 5 }}>
@@ -208,8 +214,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                 onChange={e => setAmount(e.target.value.replace(/[^\d]/g, ""))} /></div>
             <div><label className="f">Purpose</label>
               <select className="i" value={purpose} onChange={e => setPurpose(e.target.value)}>
-                {["personal","business","agriculture","medical","education","other"]
-                  .map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                {[["personal","Personal"],["business","Business"],["agriculture","Agriculture"],
+                  ["medical","Medical"],["education","Education"],["other","Other"]]
+                  .map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></div>
           </div>
 
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap", background: "#faf9f4",
@@ -331,7 +338,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
       <style>{`.pill{display:inline-flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;
         background:#faf9f4;border:1px solid var(--line);padding:9px 13px;border-radius:11px;cursor:pointer}
         .pill input{width:17px;height:17px;accent-color:#1b4434}
-        table select.i,table input.i{padding:7px 9px;font-size:13.5px}`}</style>
+        table input.i{padding:8px 10px;font-size:13.5px}`}</style>
     </div>);
 
   function patch(i, p) { setRows(rows.map((r, j) => j === i ? { ...r, ...p } : r)); }
