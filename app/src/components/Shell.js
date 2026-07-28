@@ -13,7 +13,9 @@ export default async function Shell({ children, title }) {
   const desks = visibleDesks(actor);
   const rate = await one(`SELECT base_paise, rate_date FROM rate_in_force(1, CURRENT_DATE)`);
 
-  const nav = [["/home", "⌂ Home"], ...(desks.reports ? [["/search", "Search"]] : [])];
+  const nav = [["/home", "⌂ Home"],
+    ...(desks.reports ? [["/search", "Search"]] : []),
+    ...(desks.settings ? [["/settings", "Settings"]] : [])];
 
   return (
     <>
