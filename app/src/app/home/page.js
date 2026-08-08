@@ -25,7 +25,9 @@ export default async function Home() {
             (SELECT count(*) FROM packet pk JOIN loan l2 ON l2.id=pk.loan_id
               WHERE pk.status='at_counter' AND l2.branch_id=$1)::int AS vault_due,
             (SELECT count(*) FROM packet pk JOIN loan l2 ON l2.id=pk.loan_id
-              WHERE pk.status='frozen' AND l2.branch_id=$1)::int AS vault_frozen`,
+              WHERE pk.status='frozen' AND l2.branch_id=$1)::int AS vault_frozen,
+            (SELECT count(*) FROM loan l3 JOIN packet p3 ON p3.loan_id=l3.id
+              WHERE l3.branch_id=$1 AND l3.status='closed' AND p3.status <> 'out')::int AS release_due`,
     [actor.actingBranchId]);
   const day = await one(
     `SELECT begin_signed_at, end_signed_at FROM day_cycle
@@ -108,6 +110,18 @@ export default async function Home() {
                 {day?.begin_signed_at ? "day-begin signed" : "day-begin not signed"}</span>
             </div>
           </div>
+
+          {desks.vault && counts.release_due > 0 && (
+            <a href="/release" className="card" style={{ textDecoration: "none", color: "inherit",
+              display: "block", borderColor: "var(--brass)" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: "var(--mut)" }}>
+                Gold release due — {counts.release_due} loan{counts.release_due === 1 ? "" : "s"}</div>
+              <div style={{ marginTop: 8, fontSize: 14, color: "var(--mut)", lineHeight: 1.5 }}>
+                Closed loans awaiting handover · gold goes back within 7 working days.</div>
+              <div style={{ marginTop: 12, fontWeight: 800, fontSize: 14, color: "var(--vault)" }}>
+                Open list →</div>
+            </a>
+          )}
 
           {desks.vault && (
             <a href="/vault" className="card" style={{ textDecoration: "none", color: "inherit",
