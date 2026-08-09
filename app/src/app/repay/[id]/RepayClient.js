@@ -24,8 +24,9 @@ export default function RepayClient({ loanId }) {
   if (!d) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
 
   if (done) {
+    const paidR = Number(amt || 0);   // amtN is declared further down — using it here crashes
     const wa = `नमस्कार ${d.loan.customerName.split(" ")[0]} जी, कर्ज ${d.loan.loanNo} वर ` +
-      `${inr(amtN)} जमा झाले. व्याज ${inr(done.appropriation.interest)} · ` +
+      `${inr(paidR)} जमा झाले. व्याज ${inr(done.appropriation.interest)} · ` +
       `मुद्दल ${inr(done.appropriation.principal)} · शिल्लक ${inr(done.principalAfter)}. ` +
       `धन्यवाद — S Lunawat Finance`;
     return (
@@ -78,7 +79,7 @@ export default function RepayClient({ loanId }) {
         <div>Date: {dmy(d.today)}</div>
         <div>Loan No: {d.loan.loanNo}</div>
         <div>Customer: {d.loan.customerName}</div>
-        <div style={{ fontWeight: 900, margin: "6px 0" }}>Amount received: {inr(amtN)}</div>
+        <div style={{ fontWeight: 900, margin: "6px 0" }}>Amount received: {inr(paidR)}</div>
         {done.appropriation.charges > 0 && <div>&nbsp;&nbsp;to charges: {inr(done.appropriation.charges)}</div>}
         {done.appropriation.penal > 0 && <div>&nbsp;&nbsp;to penal: {inr(done.appropriation.penal)}</div>}
         <div>&nbsp;&nbsp;to interest: {inr(done.appropriation.interest)}</div>
