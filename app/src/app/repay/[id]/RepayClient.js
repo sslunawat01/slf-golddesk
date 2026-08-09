@@ -23,22 +23,78 @@ export default function RepayClient({ loanId }) {
   if (err && !d) return <div className="card"><span className="chip bad">{err}</span></div>;
   if (!d) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
 
-  if (done) return (
-    <div className="card">
-      <span className={"chip " + (done.closes ? "ok" : "ok")}>
-        {done.closes ? "Loan settled in full — gold release can begin" : "Payment received"}</span>
-      <div className="mono" style={{ marginTop: 10, fontSize: 14 }}>Receipt {done.receiptNo}</div>
-      <div style={{ marginTop: 10, fontSize: 14, lineHeight: 1.8, color: "var(--mut)" }}>
-        To charges <b className="mono">{inr(done.appropriation.charges)}</b><br />
-        To penal <b className="mono">{inr(done.appropriation.penal)}</b><br />
-        To interest <b className="mono">{inr(done.appropriation.interest)}</b><br />
-        To principal <b className="mono">{inr(done.appropriation.principal)}</b><br />
-        Principal after this receipt <b className="mono">{inr(done.principalAfter)}</b>
+  if (done) {
+    const wa = `नमस्कार ${d.loan.customerName.split(" ")[0]} जी, कर्ज ${d.loan.loanNo} वर ` +
+      `${inr(amtN)} जमा झाले. व्याज ${inr(done.appropriation.interest)} · ` +
+      `मुद्दल ${inr(done.appropriation.principal)} · शिल्लक ${inr(done.principalAfter)}. ` +
+      `धन्यवाद — S Lunawat Finance`;
+    return (
+    <div style={{ maxWidth: 620, margin: "0 auto" }}>
+      <style>{`@media print {
+        body * { visibility: hidden !important; }
+        #slf-receipt, #slf-receipt * { visibility: visible !important; }
+        #slf-receipt { position: fixed; left: 0; top: 0; width: 100%; border: none; }
+      }`}</style>
+      <div style={{ textAlign: "center", padding: "10px 0" }}>
+        <div style={{ fontSize: 46, lineHeight: 1, color: "#1e7a4f" }}>✓</div>
+        <h1 style={{ fontSize: 23, fontWeight: 900, margin: "8px 0 2px" }}>Receipt {done.receiptNo}</h1>
+        <p style={{ color: "var(--mut)", fontSize: 13, margin: "0 0 8px" }}>पावती {done.receiptNo}</p>
+        {done.closes && (
+          <div style={{ margin: "0 0 10px" }}>
+            <span className="chip ok">LOAN CLOSED — 7-working-day gold release timer started</span>
+          </div>
+        )}
       </div>
-      <div style={{ marginTop: 14 }}>
-        <a href="/home" className="btn" style={{ textDecoration: "none" }}>← Home</a></div>
+
+      <div className="card">
+        <div style={{ fontSize: 14, lineHeight: 1.8, color: "var(--mut)" }}>
+          {done.appropriation.charges > 0 && <>To charges <b className="mono">{inr(done.appropriation.charges)}</b><br /></>}
+          {done.appropriation.penal > 0 && <>To penal <b className="mono">{inr(done.appropriation.penal)}</b><br /></>}
+          To interest <b className="mono">{inr(done.appropriation.interest)}</b><br />
+          To principal <b className="mono">{inr(done.appropriation.principal)}</b><br />
+          Principal after this receipt <b className="mono">{inr(done.principalAfter)}</b>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase",
+          letterSpacing: ".07em", color: "var(--mut)", marginBottom: 8 }}>
+          WhatsApp (Marathi) — copy and send from the branch phone</div>
+        <div style={{ fontSize: 14, lineHeight: 1.6, background: "#e2f2e9",
+          border: "1px solid #9bcfb3", borderRadius: 12, padding: "10px 13px" }}>{wa}</div>
+        <button className="btn ghost" style={{ marginTop: 10 }}
+          onClick={() => navigator.clipboard?.writeText(wa)}>Copy message</button>
+      </div>
+
+      {/* ——— what the printer prints ——— */}
+      <div id="slf-receipt" style={{ background: "#fff", border: "1px solid #e2ddd1",
+        borderRadius: 12, padding: "18px 22px", marginTop: 12,
+        fontFamily: "ui-monospace,monospace", fontSize: 13, lineHeight: 1.7 }}>
+        <div style={{ textAlign: "center", fontWeight: 900, fontSize: 15 }}>S LUNAWAT FINANCE</div>
+        <div style={{ textAlign: "center", fontSize: 11.5 }}>Gold Loan Division</div>
+        <div style={{ textAlign: "center", fontWeight: 800, margin: "8px 0" }}>
+          PAYMENT RECEIPT · पावती</div>
+        <div>Receipt No: {done.receiptNo}</div>
+        <div>Date: {dmy(d.today)}</div>
+        <div>Loan No: {d.loan.loanNo}</div>
+        <div>Customer: {d.loan.customerName}</div>
+        <div style={{ fontWeight: 900, margin: "6px 0" }}>Amount received: {inr(amtN)}</div>
+        {done.appropriation.charges > 0 && <div>&nbsp;&nbsp;to charges: {inr(done.appropriation.charges)}</div>}
+        {done.appropriation.penal > 0 && <div>&nbsp;&nbsp;to penal: {inr(done.appropriation.penal)}</div>}
+        <div>&nbsp;&nbsp;to interest: {inr(done.appropriation.interest)}</div>
+        <div>&nbsp;&nbsp;to principal: {inr(done.appropriation.principal)}</div>
+        <div>Balance principal: {inr(done.principalAfter)}</div>
+        {done.closes && <div style={{ fontWeight: 900, marginTop: 6 }}>*** LOAN CLOSED ***</div>}
+        <div style={{ marginTop: 8, fontSize: 11.5 }}>Received by: {mode.toUpperCase()}{utr ? " · " + utr : ""}</div>
+        <div style={{ textAlign: "center", marginTop: 8 }}>Thank you — S Lunawat Finance</div>
+      </div>
+
+      <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "center" }}>
+        <button className="btn" onClick={() => window.print()}>🖨 Print receipt</button>
+        <a href="/home" className="btn ghost" style={{ textDecoration: "none" }}>Back to home</a>
+      </div>
     </div>
-  );
+  ); }
 
   // The engine prices a running loan and a closing loan differently: the
   // 15-day minimum and the penal grace forgiveness apply only at closure.
@@ -103,7 +159,8 @@ export default function RepayClient({ loanId }) {
       <h1 style={{ fontSize: 24, fontWeight: 900, margin: "10px 0 6px" }}>
         Collect payment — {d.loan.customerName}</h1>
       <p className="mono" style={{ color: "var(--mut)", fontSize: 13, margin: "0 0 18px" }}>
-        {d.loan.loanNo} · {d.loan.schemeCode} · day {view.cycleDays} · as on {dmy(d.today)}</p>
+        {d.loan.loanNo} · {d.loan.schemeCode} · day {view.cycleDays} · as on {dmy(d.today)}
+        {" · "}<a href={`/addcharge/${loanId}`} style={{ color: "var(--vault)", fontWeight: 800 }}>+ add charge</a></p>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>

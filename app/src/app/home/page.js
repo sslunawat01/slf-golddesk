@@ -138,6 +138,18 @@ export default async function Home() {
             </a>
           )}
 
+          {desks.dayCycle && (
+            <a href="/daycycle" className="card" style={{ textDecoration: "none", color: "inherit",
+              display: "block" }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: "var(--mut)" }}>
+                Day begin / end</div>
+              <div style={{ marginTop: 8, fontSize: 14, color: "var(--mut)", lineHeight: 1.5 }}>
+                Opening checks and count in the morning · denomination count and variance at close.</div>
+              <div style={{ marginTop: 12, fontWeight: 800, fontSize: 14, color: "var(--vault)" }}>
+                Open →</div>
+            </a>
+          )}
+
           <div className="card">
             <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", color: "var(--mut)" }}>
               Your desks — from permissions, not job title</div>
