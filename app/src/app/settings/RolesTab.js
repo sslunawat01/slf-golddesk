@@ -42,9 +42,10 @@ export default function RolesTab() {
   }, [data, sel]);
 
   if (err && !data) return <div className="card"><span className="chip bad">{err}</span></div>;
-  if (!data || !draft) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
+  const role = data ? data.rows.find(r => r.id === sel) : null;
+  if (!data || !draft || !role)
+    return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
 
-  const role = data.rows.find(r => r.id === sel);
   const canEdit = data.canEdit;
 
   async function post(body) {
@@ -67,7 +68,12 @@ export default function RolesTab() {
       ? { action: "create", name: naming.value }
       : { action: naming.mode, id: role.id, name: naming.value };
     const r = await post(body);
-    if (r) { setNaming(null); if (r.id) setSel(r.id); load(); }
+    if (r) {
+      setNaming(null);
+      await fetch("/api/settings/roles").then(x => x.json())
+        .then(x => { if (x.ok) { setData(x); if (r.id) setSel(r.id); } })
+        .catch(() => load());
+    }
   }
 
   const setPerm = (fn, level) =>
