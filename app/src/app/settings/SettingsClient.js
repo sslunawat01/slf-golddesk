@@ -4,8 +4,9 @@ import ChargesTab from "./ChargesTab.js";
 import BranchesTab from "./BranchesTab.js";
 import SchemesTab from "./SchemesTab.js";
 import RolesTab from "./RolesTab.js";
+import EmployeesTab from "./EmployeesTab.js";
 
-const TABS = ["Charges", "Branches", "Schemes", "Roles"];
+const TABS = ["Charges", "Branches", "Schemes", "Roles", "Employees"];
 
 export default function SettingsClient() {
   const [tab, setTab] = useState("Charges");
@@ -28,6 +29,7 @@ export default function SettingsClient() {
       {tab === "Branches" && <BranchesTab />}
       {tab === "Schemes" && <SchemesTab />}
       {tab === "Roles" && <RolesTab />}
+      {tab === "Employees" && <EmployeesTab />}
     </>
   );
 }
