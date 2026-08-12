@@ -3,7 +3,8 @@ import { useState } from "react";
 const inr = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
 const inr0 = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
 
-export default function RateClient({ mayPublish, inForce, label, purities, history, warnPct }) {
+export default function RateClient({ mayPublish, metals = [], metalId = 1, metalName = "Gold",
+  inForce, label, purities, history, warnPct }) {
   const [market, setMarket] = useState(inForce ? String(Math.round(inForce.basePaise / 100)) : "");
   const [funding, setFunding] = useState(inForce ? String(Math.round(inForce.fundingPaise / 100)) : "");
   const [chip, setChip] = useState(null);
@@ -19,7 +20,7 @@ export default function RateClient({ mayPublish, inForce, label, purities, histo
     setBusy(true); setChip(null);
     const r = await fetch("/api/rate", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ marketRupees: m, fundingRupees: f, confirmed }),
+      body: JSON.stringify({ marketRupees: m, fundingRupees: f, confirmed, metalId }),
     }).then(async res => (await res.json().catch(() => null)) ?? { ok: false, reason: `Server error ${res.status}` })
       .catch(() => ({ ok: false, reason: "Cannot reach the server" }));
     setBusy(false);
@@ -30,6 +31,22 @@ export default function RateClient({ mayPublish, inForce, label, purities, histo
 
   return (
     <div>
+      {metals.length > 1 && (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
+          {metals.map(mm => mm.linked ? (
+            <span key={mm.id} className="chip mut" title="prices as a % of the gold rate">
+              {mm.kind[0].toUpperCase() + mm.kind.slice(1)} · linked to gold</span>
+          ) : (
+            <a key={mm.id} href={"/hq/rate?metal=" + mm.id}
+              style={{ textDecoration: "none", borderRadius: 99, padding: "8px 15px",
+                fontWeight: 800, fontSize: 13,
+                border: "1px solid " + (mm.id === metalId ? "var(--vault)" : "#cfc9ba"),
+                background: mm.id === metalId ? "var(--vault)" : "#fff",
+                color: mm.id === metalId ? "#fff" : "var(--mut)" }}>
+              {mm.kind[0].toUpperCase() + mm.kind.slice(1)}</a>
+          ))}
+        </div>
+      )}
       <p style={{ color: "var(--mut)", fontSize: 14, marginTop: -8, marginBottom: 18, maxWidth: 720 }}>
         One market rate and one funding rate. The market rate is what the ornament is worth;
         the funding rate is what we lend against and must sit below it. Publishing is optional —
@@ -41,7 +58,7 @@ export default function RateClient({ mayPublish, inForce, label, purities, histo
           <div style={{ display: "flex", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
               <div style={{ font: "800 11px ui-sans-serif", letterSpacing: ".07em",
-                textTransform: "uppercase", color: "var(--mut)" }}>Gold in force · {label.text}</div>
+                textTransform: "uppercase", color: "var(--mut)" }}>{metalName} in force · {label.text}</div>
               <div style={{ display: "flex", gap: 22, flexWrap: "wrap", marginTop: 8, alignItems: "baseline" }}>
                 <div><span className="mono" style={{ fontSize: 28, fontWeight: 900 }}>
                   {inr(inForce.basePaise)}</span>
@@ -63,15 +80,15 @@ export default function RateClient({ mayPublish, inForce, label, purities, histo
         <div className="card" style={{ marginTop: 16 }}>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 16 }}>
             <div>
-              <label className="f">Gold · market rate ₹/g *</label>
-              <input className="i mono" inputMode="decimal" value={market} placeholder="12040"
+              <label className="f">{metalName} · market rate ₹/g *</label>
+              <input className="i mono" inputMode="decimal" value={market} placeholder={metalId === 1 ? "12040" : ""}
                 style={{ fontSize: 20, height: 52 }}
                 onChange={e => setMarket(e.target.value.replace(/[^\d.]/g, ""))} />
               <div className="hint" style={{ marginTop: 6 }}>what the ornament is worth at today's market</div>
             </div>
             <div>
-              <label className="f">Gold · funding rate ₹/g *</label>
-              <input className="i mono" inputMode="decimal" value={funding} placeholder="11290"
+              <label className="f">{metalName} · funding rate ₹/g *</label>
+              <input className="i mono" inputMode="decimal" value={funding} placeholder={metalId === 1 ? "11290" : ""}
                 style={{ fontSize: 20, height: 52, color: "#a8791f",
                   borderColor: pairBad ? "var(--bad)" : undefined }}
                 onChange={e => setFunding(e.target.value.replace(/[^\d.]/g, ""))} />

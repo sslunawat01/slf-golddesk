@@ -15,10 +15,28 @@ export default function BranchesTab() {
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
+  const [safes, setSafes] = useState([]);
+  const [safeForm, setSafeForm] = useState(null);   // {branchId, branchName, id?, label, locationNote}
+  const [safeBusy, setSafeBusy] = useState(false);
+  const [safeErr, setSafeErr] = useState(null);
 
-  const load = () => fetch("/api/settings/branches").then(r => r.json())
-    .then(r => r.ok ? setData(r) : setErr(r.reason)).catch(() => setErr("Could not load branches"));
+  const load = () => {
+    fetch("/api/settings/branches").then(r => r.json())
+      .then(r => r.ok ? setData(r) : setErr(r.reason)).catch(() => setErr("Could not load branches"));
+    fetch("/api/settings/safes").then(r => r.json())
+      .then(r => { if (r.ok) setSafes(r.rows); }).catch(() => {});
+  };
   useEffect(() => { load(); }, []);
+
+  async function postSafe(body) {
+    setSafeBusy(true); setSafeErr(null);
+    const r = await fetch("/api/settings/safes", { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
+    setSafeBusy(false);
+    if (!r.ok) { setSafeErr(r.reason); return null; }
+    return r;
+  }
 
   if (err && !data) return <div className="card"><span className="chip bad">{err}</span></div>;
   if (!data) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
@@ -61,6 +79,37 @@ export default function BranchesTab() {
                         `${b.safes} safe${b.safes === 1 ? "" : "s"} · ${b.schemes} scheme${b.schemes === 1 ? "" : "s"} · ${b.active_loans} active loan${b.active_loans === 1 ? "" : "s"}`}
                       {!b.is_ho && b.safes === 0 && <span style={{ color: "#a06407", fontWeight: 700 }}> · no safe — cannot vault gold</span>}
                     </div>
+                    {!b.is_ho && (
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 6 }}>
+                        {safes.filter(sf => sf.branchId === b.id).map(sf => (
+                          <span key={sf.id} className={"chip " + (sf.active ? "ok" : "mut")}
+                            title={sf.locationNote || ""}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            🔐 {sf.label}
+                            {sf.inside > 0 && <b>· {sf.inside} pkt</b>}
+                            {data.canEdit && <>
+                              <button onClick={() => { setSafeErr(null);
+                                  setSafeForm({ branchId: b.id, branchName: b.name, id: sf.id,
+                                    label: sf.label, locationNote: sf.locationNote || "" }); }}
+                                style={{ border: 0, background: "none", cursor: "pointer",
+                                  fontWeight: 800, color: "inherit", padding: 0 }}>✎</button>
+                              <button disabled={safeBusy}
+                                onClick={async () => { const r = await postSafe({ action: "toggle", id: sf.id });
+                                  if (r) load(); }}
+                                style={{ border: 0, background: "none", cursor: "pointer",
+                                  fontWeight: 800, color: "inherit", padding: 0 }}
+                                title={sf.active ? "Switch off" : "Switch on"}>
+                                {sf.active ? "⏻" : "▶"}</button>
+                            </>}
+                          </span>
+                        ))}
+                        {data.canEdit && b.active &&
+                          <button className="btn ghost" style={{ padding: "4px 10px", fontSize: 11.5 }}
+                            onClick={() => { setSafeErr(null);
+                              setSafeForm({ branchId: b.id, branchName: b.name, id: null,
+                                label: "", locationNote: "" }); }}>+ Safe</button>}
+                      </div>
+                    )}
                   </div>
                   {data.canEdit && (
                     <button className="btn ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
@@ -74,6 +123,39 @@ export default function BranchesTab() {
           </div>
         ))}
       </div>
+
+      {safeForm && (
+        <div className="card" style={{ marginTop: 14, border: "1px dashed #cfc9ba" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+            textTransform: "uppercase", color: "var(--mut)", marginBottom: 12 }}>
+            {safeForm.id ? "Edit safe — " + safeForm.branchName : "New safe at " + safeForm.branchName}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))",
+            gap: 12 }}>
+            <div><label style={F}>Label * — unique within the branch</label>
+              <input style={I} value={safeForm.label} placeholder="e.g. Safe A — main vault"
+                onChange={e => setSafeForm({ ...safeForm, label: e.target.value })} /></div>
+            <div><label style={F}>Location note</label>
+              <input style={I} value={safeForm.locationNote} placeholder="e.g. strong room, ground floor"
+                onChange={e => setSafeForm({ ...safeForm, locationNote: e.target.value })} /></div>
+          </div>
+          <div className="hint" style={{ marginTop: 8 }}>
+            The vault-in screen offers this safe the moment it is saved. A safe holding packets can
+            never be switched off — move the gold out first.</div>
+          {safeErr && <div style={{ marginTop: 10 }}><span className="chip bad">{safeErr}</span></div>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
+            <button className="btn ghost" onClick={() => setSafeForm(null)}>Cancel</button>
+            <button className="btn" disabled={safeBusy || safeForm.label.trim().length < 2}
+              onClick={async () => {
+                const r = await postSafe(safeForm.id
+                  ? { action: "rename", id: safeForm.id, label: safeForm.label,
+                      locationNote: safeForm.locationNote }
+                  : { action: "create", branchId: safeForm.branchId, label: safeForm.label,
+                      locationNote: safeForm.locationNote });
+                if (r) { setSafeForm(null); load(); } }}>
+              {safeBusy ? "Saving…" : safeForm.id ? "Save safe" : "Create safe"}</button>
+          </div>
+        </div>
+      )}
 
       {data.canEdit && !form && (
         <button className="btn" style={{ marginTop: 14 }} onClick={() => setForm({ ...EMPTY })}>

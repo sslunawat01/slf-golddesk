@@ -13,14 +13,23 @@ export async function POST(req) {
   if (!can(actor, "rate_maker", { need: "full" }).ok)
     return NextResponse.json({ ok: false, reason: "You may not set the daily rate" }, { status: 403 });
 
-  const { marketRupees, fundingRupees, confirmed, sourceRef, referenceRupees } =
+  const { marketRupees, fundingRupees, confirmed, sourceRef, referenceRupees, metalId } =
     await req.json().catch(() => ({}));
+  const mid = Number(metalId) || 1;
+  const metal = await one(
+    `SELECT id, kind::text, valued_as_pct_of_gold FROM metal WHERE id = $1`, [mid]);
+  if (!metal)
+    return NextResponse.json({ ok: false, reason: "Unknown metal" }, { status: 400 });
+  if (metal.valued_as_pct_of_gold)
+    return NextResponse.json({ ok: false,
+      reason: `${metal.kind} is linked to the gold rate — unlink it in Settings → Metals before publishing its own pair` },
+      { status: 409 });
   const pair = validRatePair(marketRupees, fundingRupees);
   if (!pair.ok) return NextResponse.json({ ok: false, reason: pair.reason, field: pair.field }, { status: 400 });
   const paise = Math.round(Number(marketRupees) * 100);
   const fundingPaise = Math.round(Number(fundingRupees) * 100);
 
-  const current = await one(`SELECT * FROM rate_in_force(1, CURRENT_DATE)`);
+  const current = await one(`SELECT * FROM rate_in_force($1, CURRENT_DATE)`, [mid]);
   const warnPct = Number((await one(`SELECT value FROM app_setting WHERE key='rate_jump_warn_pct'`))?.value ?? 5);
   const check = sanityCheck(paise, current ? Number(current.base_paise) : null, warnPct);
 
@@ -34,17 +43,17 @@ export async function POST(req) {
 
   await tx(async (cl) => {
     // one rate per date: re-publishing today replaces today's row, history is kept in audit
-    await cl.query(`DELETE FROM daily_rate WHERE rate_date = CURRENT_DATE AND metal_id = 1`);
+    await cl.query(`DELETE FROM daily_rate WHERE rate_date = CURRENT_DATE AND metal_id = $1`, [mid]);
     await cl.query(
       `INSERT INTO daily_rate (rate_date, metal_id, base_paise, funding_paise, reference_paise,
          source_ref, maker_id, checker_id, jump_pct, jump_confirmed)
-       VALUES (CURRENT_DATE, 1, $1, $2, $3, $4, $5, $5, $6, $7)`,
+       VALUES (CURRENT_DATE, $8, $1, $2, $3, $4, $5, $5, $6, $7)`,
       [paise, fundingPaise, referenceRupees ? Math.round(Number(referenceRupees) * 100) : null,
-       sourceRef || null, actor.employeeId, Number(check.pct.toFixed(3)), !!check.needsConfirm]);
+       sourceRef || null, actor.employeeId, Number(check.pct.toFixed(3)), !!check.needsConfirm, mid]);
     await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
-      table: "daily_rate", action: "rate_published",
+      table: "daily_rate", action: "rate_published", entityId: mid,
       before: current ? { base_paise: Number(current.base_paise), rate_date: current.rate_date } : null,
-      after: { base_paise: paise, funding_paise: fundingPaise, haircut_pct: Number(pair.haircutPct.toFixed(2)),
+      after: { metal: metal.kind, base_paise: paise, funding_paise: fundingPaise, haircut_pct: Number(pair.haircutPct.toFixed(2)),
                jump_pct: Number(check.pct.toFixed(3)), confirmed: !!check.needsConfirm } });
   }, { entityIds: "ALL" });
 
