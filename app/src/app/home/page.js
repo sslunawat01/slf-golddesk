@@ -155,7 +155,10 @@ export default async function Home() {
               Your desks — from permissions, not job title</div>
             <div style={{ marginTop: 10, display: "flex", gap: 6, flexWrap: "wrap" }}>
               {Object.entries(desks).map(([k, v]) =>
-                v && k === "approvals"
+                v && k === "overdue"
+                  ? <a key={k} href="/overdue" className="chip ok" style={{ textDecoration: "none" }}>
+                      ✓ {deskLabels[k]} →</a>
+                  : v && k === "approvals"
                   ? <a key={k} href="/hq/approvals" className="chip ok" style={{ textDecoration: "none" }}>
                       ✓ {deskLabels[k]} →</a>
                   : v && k === "dailyRate"

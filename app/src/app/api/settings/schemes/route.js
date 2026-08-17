@@ -47,7 +47,12 @@ export async function GET() {
   const branches = await q(
     `SELECT id, code, name, is_ho FROM branch WHERE active ORDER BY id`);
 
-  return NextResponse.json({ ok: true, schemes, versions, slabs, alloc, branches,
+  const dset = await one(
+    `SELECT value FROM app_setting WHERE key = 'scheme_days_in_year_default'`);
+  const daysDefault = dset ? Number(dset.value) : 365;
+
+  return NextResponse.json({ ok: true,
+    daysDefault, schemes, versions, slabs, alloc, branches,
     canEdit: can(actor, "settings", { need: "full" }).ok });
 }
 
@@ -77,9 +82,9 @@ export async function POST(req) {
              VALUES ($1,$2,1,true,$3) RETURNING id`,
             [String(b.code).trim().toUpperCase(), String(b.name).trim(), actor.employeeId]);
           schemeId = Number(s.id);
-          // every role may sanction every scheme — the owner's standing default
-          await cl.query(`INSERT INTO role_scheme (role_id, scheme_id)
-                            SELECT r.id, $1 FROM role r ON CONFLICT DO NOTHING`, [schemeId]);
+          // Owner amendment 13 Aug 2026 (reverses the earlier standing default):
+          // a new scheme is allocated to NO role. Grant it deliberately from
+          // Settings -> Roles. Existing allocations are untouched.
         }
 
         let versionId = b.versionId;
@@ -210,6 +215,26 @@ export async function POST(req) {
           table: "scheme_branch", entityId: Number(b.versionId), action: "scheme_allocation_changed",
           after: { branches: branchIds } });
       }, { entityIds: "ALL" });
+      return NextResponse.json({ ok: true });
+    }
+
+    // №19 — the house default for NEW schemes' day divisor (owner amendment).
+    // Every scheme version still PINS its own figure for life; this only
+    // pre-fills the wizard.
+    if (b.action === "set_days_default") {
+      const d = Number(b.days);
+      if (!Number.isInteger(d) || d < 300 || d > 370)
+        return NextResponse.json({ ok: false,
+          reason: "Days in a year must be a whole number between 300 and 370" }, { status: 400 });
+      await tx(async (cl) => {
+        await cl.query(
+          `INSERT INTO app_setting (key, value, updated_by) VALUES ($1, to_jsonb($2::int), $3)
+           ON CONFLICT (key) DO UPDATE SET value = to_jsonb($2::int), updated_at = now(),
+             updated_by = $3`,
+          ["scheme_days_in_year_default", d, actor.employeeId]);
+        await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+          table: "app_setting", action: "set_days_default", after: { days: d } });
+      });
       return NextResponse.json({ ok: true });
     }
 

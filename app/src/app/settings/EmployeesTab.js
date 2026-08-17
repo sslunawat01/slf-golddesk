@@ -248,7 +248,9 @@ export default function EmployeesTab() {
           {step === 1 && <div style={{ display: "grid",
             gridTemplateColumns: "repeat(auto-fit,minmax(210px,1fr))", gap: 12 }}>
             <div style={{ gridColumn: "1/-1" }}><span style={F}>Full name *</span>
-              <input style={I} value={w.fullName} onChange={setW("fullName")} placeholder="As on Aadhaar / PAN" /></div>
+              <input style={I} value={w.fullName} onChange={setW("fullName")}
+                onBlur={e => setWiz({ ...w, fullName: toTitle(e.target.value) })}
+                placeholder="As on Aadhaar / PAN" /></div>
             <div><span style={F}>Gender</span>
               <select style={I} value={w.gender} onChange={setW("gender")}>
                 <option value="">—</option>
@@ -261,7 +263,8 @@ export default function EmployeesTab() {
                 <option value="">—</option>{BLOOD.map(b => <option key={b}>{b}</option>)}
               </select></div>
             <div><span style={F}>Father / spouse name</span>
-              <input style={I} value={w.fatherSpouseName} onChange={setW("fatherSpouseName")} /></div>
+              <input style={I} value={w.fatherSpouseName} onChange={setW("fatherSpouseName")}
+                onBlur={e => setWiz({ ...w, fatherSpouseName: toTitle(e.target.value) })} /></div>
             <div><span style={F}>Mobile *</span>
               <input style={I} inputMode="numeric" maxLength={10} value={w.mobile}
                 onChange={e => setWiz({ ...w, mobile: e.target.value.replace(/\D/g, "") })} /></div>
@@ -271,7 +274,7 @@ export default function EmployeesTab() {
             <div><span style={F}>Personal email</span>
               <input style={I} value={w.personalEmail} onChange={setW("personalEmail")} /></div>
             <div style={{ gridColumn: "1/-1" }}>
-              <PhotoInput kind="employee" label="Photo at the counter" square
+              <PhotoInput kind="employee_face" label="Photo at the counter" square
                 value={w.photoFileId} onChange={(v) => setWiz({ ...w, photoFileId: v })}
                 hint="Optional now — used on the employee card and for face sign-in later." /></div>
           </div>}
@@ -285,7 +288,7 @@ export default function EmployeesTab() {
                 placeholder="4444 4444 4444" /></div>
             <div><span style={F}>PAN *¹</span>
               <input style={I} maxLength={10} value={w.panNo}
-                onChange={e => setWiz({ ...w, panNo: e.target.value.toUpperCase() })}
+                onChange={e => setWiz({ ...w, panNo: panFilter(e.target.value) })}
                 placeholder="BIWPK2312M" /></div>
             <div style={{ gridColumn: "1/-1" }} className="hint">
               *¹ At least one of the two. The full Aadhaar is stored on the employee's record
@@ -307,12 +310,19 @@ export default function EmployeesTab() {
                   <option value="">permanent (default)</option>
                   {data.enums.types.map(t => <option key={t} value={t}>{t}</option>)}
                 </select></div>
-              <div><span style={F}>Reports to</span>
-                <select style={I} value={w.reportsTo} onChange={setW("reportsTo")}>
-                  <option value="">—</option>
-                  {data.rows.filter(e => e.status === "active").map(e =>
-                    <option key={e.id} value={e.id}>{e.fullName}</option>)}
-                </select></div>
+              <div><span style={F}>Reports to — type to search</span>
+                <input style={I} list="emp-reports-to" value={w.reportsToName || ""}
+                  placeholder="Start typing a name…"
+                  onChange={e => {
+                    const txt = e.target.value;
+                    const hit = data.rows.find(x => x.status === "active"
+                      && (x.fullName + " · " + x.empCode) === txt);
+                    setWiz({ ...w, reportsToName: txt, reportsTo: hit ? hit.id : "" });
+                  }} />
+                <datalist id="emp-reports-to">
+                  {data.rows.filter(x => x.status === "active").map(x =>
+                    <option key={x.id} value={x.fullName + " · " + x.empCode} />)}
+                </datalist></div>
             </div>
             <span style={F}>Roles * — what they may do</span>
             <TickRow items={data.roles.map(r => [r.id, r.name])} on={w.roleIds}
@@ -465,6 +475,24 @@ function TickRow({ items, on, toggle }) {
           style={tick(on.includes(id))}>{on.includes(id) ? "✓ " : ""}{label}</button>))}
     </div>
   );
+}
+
+/** PAN as you type: positions 1-5 letters, 6-9 digits, 10 a letter. */
+function panFilter(v) {
+  const s = String(v).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  let out = "";
+  for (const ch of s) {
+    const i = out.length;
+    if (i >= 10) break;
+    if (i < 5 || i === 9) { if (/[A-Z]/.test(ch)) out += ch; }
+    else { if (/[0-9]/.test(ch)) out += ch; }
+  }
+  return out;
+}
+
+function toTitle(v) {
+  return String(v).toLowerCase().replace(/(^|[\s.'-])([a-z\u00e0-\u00ff])/g,
+    (m, p, c) => p + c.toUpperCase()).trim();
 }
 
 function tick(on) {

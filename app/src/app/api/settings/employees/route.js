@@ -3,6 +3,7 @@ import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { one, q, tx, audit } from "@/lib/db.js";
 import { hashPassword } from "@/lib/password.js";
+import { titleCaseName } from "@/lib/format.js";
 import { validIdentity, validKyc, validEmployment, validAccess, validSuspension,
   canSuspend, wouldRemoveLastAdmin } from "@/lib/employees.js";
 export const runtime = "nodejs";
@@ -123,7 +124,7 @@ export async function POST(req) {
            RETURNING id`,
           [v1.fullName, b.gender || null, b.dob || null, b.photoFileId || null,
            v1.mobile, v1.altMobile, b.personalEmail || null, b.bloodGroup || null,
-           b.fatherSpouseName || null,
+           titleCaseName(b.fatherSpouseName) || null,
            v2.aadhaarLast4, v2.aadhaarNo, v2.panNo, JSON.stringify(b.address || {}),
            String(b.designation).trim(), b.department || null, b.doj,
            b.reportsTo || null, b.employmentType || null,
@@ -171,7 +172,7 @@ export async function POST(req) {
               official_email=$17, photo_file_id=COALESCE($18, photo_file_id), updated_by=$19
             WHERE id=$1`,
           [emp.id, v1.fullName, b.gender || null, b.dob || null, v1.mobile, v1.altMobile,
-           b.personalEmail || null, b.bloodGroup || null, b.fatherSpouseName || null,
+           b.personalEmail || null, b.bloodGroup || null, titleCaseName(b.fatherSpouseName) || null,
            v2.aadhaarLast4, v2.aadhaarNo, v2.panNo, String(b.designation).trim(),
            b.department || null, b.reportsTo || null, b.employmentType || null,
            b.officialEmail || null, b.photoFileId || null, actor.employeeId]);

@@ -13,8 +13,8 @@ const STEPS = ["Identity", "Interest", "Charges", "Limits", "Review"];
 const BLANK = { code: "", name: "", calcMethod: "", interestPct: "", slabMode: "retroactive",
   slabs: [{ fromDay: 1, toDay: "", ratePct: "" }, { fromDay: "", toDay: "", ratePct: "" }],
   daysInYear: 365, minInterestDays: 15, tenureDays: "", penalRatePct: 2, penalGraceDays: 7,
-  fundingPct: "", minLoanRs: 5000, maxLoanRs: 1000000, docChargePct: 0.25, docMinRs: 100,
-  docMaxRs: 1500, effectiveFrom: new Date().toISOString().slice(0, 10) };
+  fundingPct: "", minLoanRs: 5000, maxLoanRs: 1000000, docChargePct: 0, docMinRs: 0,
+  docMaxRs: 0, effectiveFrom: new Date().toISOString().slice(0, 10) };
 
 export default function SchemesTab() {
   const [data, setData] = useState(null);
@@ -22,10 +22,13 @@ export default function SchemesTab() {
   const [open, setOpen] = useState(null);      // scheme id being viewed
   const [wiz, setWiz] = useState(null);        // { schemeId|null, form, step }
   const [busy, setBusy] = useState(false);
+  const [daysDef, setDaysDef] = useState("365");
 
   const load = () => fetch("/api/settings/schemes").then(r => r.json())
     .then(r => r.ok ? setData(r) : setErr(r.reason)).catch(() => setErr("Could not load schemes"));
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (data?.daysDefault != null) setDaysDef(String(data.daysDefault)); },
+    [data?.daysDefault]);
 
   if (err && !data) return <div className="card"><span className="chip bad">{err}</span></div>;
   if (!data) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
@@ -149,8 +152,26 @@ export default function SchemesTab() {
         </table>
       </div>
       {data.canEdit && (
+          <div className="card" style={{ display: "flex", alignItems: "center", gap: 10,
+            flexWrap: "wrap", marginBottom: 12, padding: "10px 14px" }}>
+            <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+              textTransform: "uppercase", color: "var(--mut)" }}>
+              Common setting · days in a year for NEW schemes</span>
+            <input value={daysDef} inputMode="numeric"
+              onChange={e => setDaysDef(e.target.value.replace(/\D/g, "").slice(0, 3))}
+              style={{ width: 70, border: "1px solid #cfc9ba", borderRadius: 9, height: 34,
+                padding: "0 10px", fontFamily: "ui-monospace,monospace", fontSize: 13 }} />
+            <button className="btn ghost" style={{ padding: "6px 12px", fontSize: 12 }}
+              disabled={busy || daysDef === String(data.daysDefault)}
+              onClick={async () => { const r = await post({ action: "set_days_default",
+                days: Number(daysDef) }); if (r) load(); }}>Save default</button>
+            <span className="hint">Pre-fills the wizard only — every published scheme keeps its
+              own figure for life; running loans never move.</span>
+          </div>
+        )}
+        {data.canEdit && (
         <button className="btn" style={{ marginTop: 12 }}
-          onClick={() => setWiz({ schemeId: null, versionId: null, step: 0, form: { ...BLANK } })}>
+          onClick={() => setWiz({ schemeId: null, versionId: null, step: 0, form: { ...BLANK, daysInYear: data.daysDefault ?? 365 } })}>
           + New scheme</button>
       )}
       <p className="hint" style={{ marginTop: 8 }}>
@@ -172,8 +193,11 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
 
   async function publish() {
     const ids = alloc ?? allocOf(v.id);
-    const r = await post({ action: "publish", versionId: v.id,
-      branchIds: ids.length ? ids : lendable.map(b => b.id) });
+    if (!ids.length) {
+      setErr("Tick at least one branch - a scheme is never published everywhere by default");
+      return;
+    }
+    const r = await post({ action: "publish", versionId: v.id, branchIds: ids });
     if (r) { setAlloc(null); reload(); }
   }
   async function saveAlloc() {
@@ -206,6 +230,12 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
           <div style={{ fontSize: 12, fontWeight: 800, marginBottom: 8 }}>
             Tick every branch that may lend on v{v.version_no}</div>
           <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: 8 }}>
+              <button className="btn ghost" style={{ padding: "5px 11px", fontSize: 11.5 }}
+                onClick={() => setAlloc(lendable.map(b => b.id))}>Select all</button>
+              <button className="btn ghost" style={{ padding: "5px 11px", fontSize: 11.5 }}
+                onClick={() => setAlloc([])}>Clear all</button>
+            </div>
             {lendable.map(b => {
               const on = alloc.includes(b.id);
               return (

@@ -115,8 +115,12 @@ export function validSchemeVersion(s = {}) {
       problems.push(`The last slab ends at day ${prevTo} but the tenure is ${s.tenureDays} days — cover the whole tenure`);
   }
 
-  if (![365, 366].includes(Number(s.daysInYear)))
-    problems.push("Days in a year must be 365 or 366");
+  // Owner amendment 13 Aug 2026: the day divisor is the owner's commercial
+  // choice (360 / 365 / 366 ...), not the calendar's. Pinned per scheme version
+  // as ever — running loans never move. Sane bounds only catch typos.
+  const diy = Number(s.daysInYear);
+  if (!Number.isInteger(diy) || diy < 300 || diy > 370)
+    problems.push("Days in a year must be a whole number between 300 and 370 (e.g. 360, 365)");
   if (!(Number(s.minInterestDays) >= 0))
     problems.push("Minimum interest days is required — 0 means no minimum");
   if (!(Number(s.tenureDays) > 0)) problems.push("Tenure in days is required");

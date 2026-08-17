@@ -10,6 +10,7 @@
  */
 
 import { checkPasswordPolicy } from "./password.js";
+import { titleCaseName } from "./format.js";
 
 // ————————————————————————— step 1 · identity —————————————————————————
 
@@ -34,7 +35,8 @@ export function validIdentity(b = {}) {
   if (b.personalEmail && !/^\S+@\S+\.\S+$/.test(String(b.personalEmail).trim()))
     problems.push("The personal email does not look like an email address");
   return { ok: problems.length === 0, problems,
-    fullName: name, mobile, altMobile: b.altMobile ? String(b.altMobile).replace(/\D/g, "") : null };
+    fullName: titleCaseName(name), mobile,
+    altMobile: b.altMobile ? String(b.altMobile).replace(/\D/g, "") : null };
 }
 
 // ————————————————————————— step 2 · KYC —————————————————————————

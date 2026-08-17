@@ -78,6 +78,10 @@ export default async function Customer360({ params, searchParams }) {
               <div style={{ fontWeight: 900, fontSize: 18, lineHeight: 1.25 }}>{c.fullName}</div>
               <div className="mono" style={{ color: "var(--mut)", fontSize: 13, marginTop: 3 }}>
                 {c.cust_no}<br />{c.mobile}</div>
+              <a href={`/customers/${c.id}/edit`} style={{ display: "inline-block", marginTop: 8,
+                fontSize: 12.5, fontWeight: 800, color: "var(--vault)",
+                textDecoration: "none", border: "1px solid #cfc9ba", borderRadius: 9,
+                padding: "5px 12px" }}>✎ Edit contact / address / nominee</a>
             </div>
           </div>
 

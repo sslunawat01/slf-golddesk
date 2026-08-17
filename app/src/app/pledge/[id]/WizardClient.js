@@ -20,6 +20,11 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
   const [purpose, setPurpose] = useState(app.purpose || "personal");
   const [present, setPresent] = useState(app.borrowerPresent ?? true);
   const [presencePhoto, setPresencePhoto] = useState(null);
+  const [cob, setCob] = useState(app.coborrowerCustomerId
+    ? { on: true, picked: { id: app.coborrowerCustomerId, name: app.coborrowerName || "co-borrower on file" }, q: "", results: [] }
+    : { on: false, picked: null, q: "", results: [] });
+  const [cobPhoto, setCobPhoto] = useState(null);
+  const [docs, setDocs] = useState([]);
   const [v1, setV1] = useState(app.valuer1Id || "");
   const [v2, setV2] = useState(app.valuer2Id || "");
   const [cash, setCash] = useState("");
@@ -41,8 +46,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
     // The application snapshots ONE rate pair. Until a metal has its own snapshot we
     // refuse to price it rather than quietly using the gold rate (O7 still open).
     const unrated = String(r.metalId) !== String(ratedMetalId);
-    if (unrated) return { ...r, netMg: Math.max(0, mg(r.gross) - mg(r.stone)), marketPaise: 0, fundingPaise: 0, unrated: true };
-    if (!r.itemId || !r.gross || !p) return { ...r, netMg: 0, marketPaise: 0, fundingPaise: 0 };
+    const liveNetMg = Math.max(0, mg(r.gross) - mg(r.stone));   // №1: net = gross − stone, immediately; stone may be 0
+    if (unrated) return { ...r, netMg: liveNetMg, marketPaise: 0, fundingPaise: 0, unrated: true };
+    if (!r.itemId || !r.gross || !p) return { ...r, netMg: liveNetMg, marketPaise: 0, fundingPaise: 0 };
     const v = ornamentValue({ grossMg: mg(r.gross), stoneMg: mg(r.stone), purityPct: Number(p.purityPct),
       base24kPaise: base24k, funding24kPaise: funding24k, fundingPct });
     return { ...r, ...v, grossMg: mg(r.gross), stoneMg: mg(r.stone) };
@@ -92,6 +98,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
       schemeVersionId: schemeId ? Number(schemeId) : null,
       requestedPaise: principalPaise || null, purpose,
       borrowerPresent: present, presencePhotoId: presencePhoto?.fileId ?? null,
+      coborrowerCustomerId: cob.on && cob.picked ? Number(cob.picked.id) : null,
+      coborrowerPhotoId: cob.on && cob.picked ? (cobPhoto?.fileId ?? null) : null,
+      documents: docs.map(d => ({ fileId: d.file.fileId, note: d.note || null })),
       valuer1Id: v1 ? Number(v1) : null, valuer2Id: v2 ? Number(v2) : null, ...extra };
     const r = await fetch(`/api/applications/${app.id}`, {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
@@ -283,8 +292,86 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
               ? <div style={{ marginTop: 14 }}>
                   <PhotoInput kind="presence" label="Borrower photo at the counter *"
                     value={presencePhoto} onChange={setPresencePhoto} /></div>
+
               : <div style={{ marginTop: 12 }}>
                   <span className="chip warn">borrower absent — a co-borrower is required (Sprint 1B+)</span></div>}
+
+          {/* ——— №2 · co-borrower, from KYC-done customers only ——— */}
+          <div style={{ marginTop: 14 }}>
+            <button onClick={() => setCob({ ...cob, on: !cob.on })}
+              style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid " +
+                (cob.on ? "var(--vault)" : "#cfc9ba"), background: cob.on ? "var(--vault)" : "#fff",
+                color: cob.on ? "#fff" : "var(--mut)", borderRadius: 10, padding: "9px 13px",
+                fontWeight: 800, fontSize: 13, cursor: "pointer" }}>
+              <span style={{ width: 16, height: 16, borderRadius: 4, border: "2px solid currentColor",
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>
+                {cob.on ? "✓" : ""}</span>
+              Add a co-borrower</button>
+            {cob.on && (
+              <div style={{ marginTop: 10 }}>
+                {cob.picked ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span className="chip ok">✓ {cob.picked.name}
+                      {cob.picked.custNo ? " · " + cob.picked.custNo : ""}</span>
+                    <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12 }}
+                      onClick={() => setCob({ ...cob, picked: null, q: "", results: [] })}>Change</button>
+                  </div>
+                ) : (
+                  <>
+                    <input className="i" value={cob.q} placeholder="Search a KYC-done customer — name, mobile or number…"
+                      onChange={async (e) => {
+                        const q = e.target.value;
+                        setCob({ ...cob, q });
+                        if (q.trim().length < 2) { setCob(c => ({ ...c, q, results: [] })); return; }
+                        const r = await fetch("/api/search?q=" + encodeURIComponent(q))
+                          .then(x => x.json()).catch(() => null);
+                        if (r?.ok) setCob(c => c.q === q ? { ...c, results:
+                          (r.customers || []).filter(x => x.kyc?.mayLend && !x.isBlacklisted
+                            && Number(x.id) !== Number(customer.id)).slice(0, 6) } : c);
+                      }} />
+                    {cob.q.trim().length >= 2 && (
+                      <div style={{ border: "1px solid var(--line)", borderRadius: 10,
+                        background: "#fff", marginTop: 6, overflow: "hidden" }}>
+                        {cob.results.map(x => (
+                          <button key={x.id} onClick={() => setCob({ ...cob,
+                              picked: { id: x.id, name: x.fullName, custNo: x.custNo } })}
+                            style={{ display: "block", width: "100%", textAlign: "left",
+                              padding: "9px 12px", border: 0, borderBottom: "1px solid #f0ede4",
+                              background: "#fff", cursor: "pointer", fontSize: 13.5 }}>
+                            <b>{x.fullName}</b>
+                            <span className="mono" style={{ color: "var(--mut)", fontSize: 11.5,
+                              marginLeft: 8 }}>{x.custNo} · {x.mobile}</span></button>))}
+                        {cob.results.length === 0 &&
+                          <div style={{ padding: "9px 12px", fontSize: 12.5, color: "var(--mut)" }}>
+                            No KYC-done customer matches. A co-borrower must already be a customer
+                            with full, current KYC — add them from Search first.</div>}
+                      </div>)}
+                  </>
+                )}
+                {cob.picked && (
+                  <div style={{ marginTop: 8 }}>
+                    <PhotoInput kind="coborrower" label="Co-borrower photo at the counter"
+                      value={cobPhoto} onChange={setCobPhoto}
+                      hint="Taken now, at the counter — same rule as the borrower." />
+                  </div>)}
+              </div>)}
+          </div>
+
+          {/* ——— №12 · pledge documents ——— */}
+          <div style={{ marginTop: 14 }}>
+            <div className="f">Pledge documents — optional</div>
+            <PhotoInput kind="kyc_scan" label="📎 Add a document photo" multiple
+              value={docs.map(d => d.file)}
+              onChange={(files) => {
+                const arr = Array.isArray(files) ? files : files ? [files] : [];
+                setDocs(arr.map(f => docs.find(d => d.file.fileId === f.fileId) || { file: f, note: "" }));
+              }}
+              hint="Declaration, prior receipt, ID copy — anything filed with this pledge." />
+            {docs.map((d, i) => (
+              <input key={d.file.fileId} className="i" style={{ marginTop: 6 }}
+                value={d.note} placeholder={"What is document " + (i + 1) + "?"}
+                onChange={e => setDocs(docs.map((x, j) => j === i ? { ...x, note: e.target.value } : x))} />))}
+          </div>
           </div>
         </div>)}
 

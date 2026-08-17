@@ -39,6 +39,16 @@ export async function PATCH(req, { params }) {
        body.coborrowerPhotoId ?? null, body.valuer1Id ?? null, body.valuer2Id ?? null,
        (body.items?.length ? "appraised" : app.status), actor.employeeId]);
 
+    if (Array.isArray(body.documents)) {
+      await cl.query(`DELETE FROM application_document WHERE application_id=$1`, [id]);
+      for (const d of body.documents) {
+        if (!d?.fileId) continue;
+        await cl.query(
+          `INSERT INTO application_document (application_id, file_id, note) VALUES ($1,$2,$3)`,
+          [id, Number(d.fileId), String(d.note || "").trim() || null]);
+      }
+    }
+
     if (Array.isArray(body.items)) {
       await cl.query(`DELETE FROM appraisal_item WHERE application_id=$1`, [id]);
       for (const r of body.items) {

@@ -26,6 +26,16 @@ no("a 17-year-old is refused",
 no("a two-character name is refused",
   validIdentity({ fullName: "Sa", mobile: "9822012345" }), "full name");
 
+console.log("\n§1b Names arrive tidy — Proper Case, whatever was typed");
+{ const v = validIdentity({ fullName: "sarita ramesh pawar", mobile: "9822012345" });
+  (v.fullName === "Sarita Ramesh Pawar")
+    ? (pass++, console.log("  ✓ 'sarita ramesh pawar' is stored as 'Sarita Ramesh Pawar'"))
+    : (fail++, console.log("  ✗ title case failed:", v.fullName)); }
+{ const v = validIdentity({ fullName: "D'SOUZA anthony", mobile: "9822012345" });
+  (v.fullName === "D'Souza Anthony")
+    ? (pass++, console.log("  ✓ apostrophes and caps both behave: D'Souza Anthony"))
+    : (fail++, console.log("  ✗ got:", v.fullName)); }
+
 console.log("\n§2 KYC — the FULL Aadhaar is accepted and STORED (owner decision 12 Aug)");
 ok("the full Aadhaar with spaces is accepted", validKyc({ aadhaarLast4: "4444 4444 4444" }));
 ok("all 12 digits are kept for storage",

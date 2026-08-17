@@ -70,8 +70,13 @@ no("a slab starting at day 5 is refused",
 console.log("\n§5 Guard rails on the numbers");
 no("a duplicate scheme code is refused",
   validSchemeVersion({ ...base, code: "GL2070" }), "already exists");
-no("366-day years are fine but 360 is refused",
-  validSchemeVersion({ ...base, daysInYear: 360 }), "365 or 366");
+// rewritten 13 Aug 2026 (owner amendment): 360-day years are now a valid choice
+ok("a 360-day year is accepted - the divisor is a commercial choice",
+  validSchemeVersion({ ...base, daysInYear: 360 }));
+no("a 36-day 'year' is still refused as a typo",
+  validSchemeVersion({ ...base, daysInYear: 36 }), "between 300 and 370");
+no("a fractional year is refused",
+  validSchemeVersion({ ...base, daysInYear: 365.25 }), "between 300 and 370");
 no("minimum days beyond the tenure is refused",
   validSchemeVersion({ ...base, minInterestDays: 400 }), "cannot exceed the tenure");
 no("a 150% interest rate is treated as a typo",

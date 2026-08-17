@@ -43,8 +43,11 @@ export default function Login({ rate }) {
   const [empId, setEmpId] = useState(null);
 
   useEffect(() => {
-    if (new URLSearchParams(window.location.search).get("expired"))
+    const sp = new URLSearchParams(window.location.search);
+    if (sp.get("expired"))
       setChip({ tone: "warn", text: "Signed out after 30 minutes of inactivity." });
+    else if (sp.get("out"))
+      setChip({ tone: "ok", text: "Signed out successfully." });
   }, []);
 
   async function submit(e) {
