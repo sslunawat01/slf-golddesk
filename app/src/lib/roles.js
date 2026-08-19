@@ -31,6 +31,7 @@ export const FUNCTION_LABELS = {
   rate_checker: "Daily rate — checker",
   reports: "Reports",
   settings: "Settings & admin",
+  edit_customer: "Edit customer details",
 };
 
 export const LEVELS = ["none", "view", "full"];

@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 export default async function EditCustomerPage({ params }) {
   const actor = await currentActor();
   if (!actor) redirect("/login?expired=1");
-  const mayEdit = can(actor, "appraise", { need: "full" }).ok
-    || can(actor, "collect", { need: "full" }).ok;
+  const mayEdit = can(actor, "settings", { need: "full" }).ok
+    || can(actor, "edit_customer", { need: "full" }).ok;
   if (!mayEdit) redirect("/home");
 
   const { id } = await params;

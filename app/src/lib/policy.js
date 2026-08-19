@@ -16,7 +16,7 @@
 
 export const FUNCTIONS = [
   "appraise", "sanction", "vault", "disburse", "collect", "renew", "release",
-  "dayend", "cash_transfer", "rate_maker", "rate_checker", "reports", "settings",
+  "dayend", "cash_transfer", "rate_maker", "rate_checker", "reports", "settings", "edit_customer",
 ];
 
 const RANK = { none: 0, view: 1, full: 2 };

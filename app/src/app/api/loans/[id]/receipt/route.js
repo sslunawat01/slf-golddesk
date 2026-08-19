@@ -32,6 +32,7 @@ export async function POST(req, { params }) {
     const utr = String(body.utr || "").trim();
     const amountPaise = Math.round(Number(body.amountPaise || 0));
     const closing = !!body.closing;
+    const paidBy = String(body.paidBy || "").trim().slice(0, 80) || null;   // №18
 
     if (!MODES.includes(mode))
       return NextResponse.json({ ok: false, reason: "Choose how the customer is paying" }, { status: 400 });
@@ -80,11 +81,11 @@ export async function POST(req, { params }) {
       const { rows: [r] } = await cl.query(
         `INSERT INTO receipt (receipt_no, entity_id, branch_id, loan_id, business_date,
            amount_paise, mode, utr, is_exact_settlement, closes_loan, seals_cycle,
-           engine_version, received_by)
-         VALUES ($1,$2,$3,$4,CURRENT_DATE,$5,$6::pay_mode,$7,$8,$9,$10,$11,$12) RETURNING id`,
+           engine_version, received_by, paid_by)
+         VALUES ($1,$2,$3,$4,CURRENT_DATE,$5,$6::pay_mode,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
         [receiptNo, pos.loan.entity_id, pos.loan.branch_id, pos.loan.id, amountPaise,
          mode, mode === "cash" ? (utr || null) : utr, isExact, closes,
-         !!receipt.sealsCycle, ENGINE_VERSION, actor.employeeId]);
+         !!receipt.sealsCycle, ENGINE_VERSION, actor.employeeId, paidBy]);
 
       for (const a of rows)
         await cl.query(

@@ -13,6 +13,7 @@ export default function RepayClient({ loanId }) {
   const [amt, setAmt] = useState("");
   const [mode, setMode] = useState("");
   const [utr, setUtr] = useState("");
+  const [paidBy, setPaidBy] = useState("");
   const [closingIntent, setClosingIntent] = useState(false);
 
   const load = () => fetch(`/api/loans/${loanId}/dues`).then(r => r.json())
@@ -86,6 +87,7 @@ export default function RepayClient({ loanId }) {
         <div>&nbsp;&nbsp;to principal: {inr(done.appropriation.principal)}</div>
         <div>Balance principal: {inr(done.principalAfter)}</div>
         {done.closes && <div style={{ fontWeight: 900, marginTop: 6 }}>*** LOAN CLOSED ***</div>}
+        {paidBy.trim() && <div>Paid by: {paidBy.trim()}</div>}
         <div style={{ marginTop: 8, fontSize: 11.5 }}>Received by: {mode.toUpperCase()}{utr ? " · " + utr : ""}</div>
         <div style={{ textAlign: "center", marginTop: 8 }}>Thank you — S Lunawat Finance</div>
       </div>
@@ -146,7 +148,7 @@ export default function RepayClient({ loanId }) {
     setBusy(true); setErr(null);
     const r = await fetch(`/api/loans/${loanId}/receipt`, { method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ amountPaise: Math.round(amtN * 100), mode,
+      body: JSON.stringify({ paidBy: paidBy.trim() || null, amountPaise: Math.round(amtN * 100), mode,
         utr: utr.trim(), closing: closingIntent }) }).then(r => r.json())
       .catch(() => ({ ok: false, reason: "The payment could not be sent" }));
     setBusy(false);
@@ -157,8 +159,18 @@ export default function RepayClient({ loanId }) {
     <div style={{ maxWidth: 720 }}>
       <a href="/home" style={{ color: "var(--mut)", fontSize: 13, fontWeight: 700,
         textDecoration: "none" }}>← home</a>
-      <h1 style={{ fontSize: 24, fontWeight: 900, margin: "10px 0 6px" }}>
-        Collect payment — {d.loan.customerName}</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "10px 0 0" }}>
+        {d.loan.ornamentPhotoUrl &&
+          <img src={d.loan.ornamentPhotoUrl} alt="pledged ornaments"
+            style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover",
+              border: "1px solid var(--line)" }} />}
+        <h1 style={{ fontSize: 24, fontWeight: 900, margin: 0 }}>
+          Collect payment — {d.loan.customerName}</h1>
+      </div>
+      {d.loan.coborrowerName &&
+        <div style={{ margin: "6px 0 0" }}>
+          <span className="chip mut">co-borrower: {d.loan.coborrowerName}
+            {d.loan.coborrowerCustNo ? " · " + d.loan.coborrowerCustNo : ""}</span></div>}
       <p className="mono" style={{ color: "var(--mut)", fontSize: 13, margin: "0 0 18px" }}>
         {d.loan.loanNo} · {d.loan.schemeCode} · day {view.cycleDays} · as on {dmy(d.today)}
         {" · "}<a href={`/addcharge/${loanId}`} style={{ color: "var(--vault)", fontWeight: 800 }}>+ add charge</a></p>
@@ -254,6 +266,15 @@ export default function RepayClient({ loanId }) {
           <option value="cash">Cash</option>
           <option value="bank">Bank transfer</option>
         </select>
+        <div style={{ marginTop: 10 }}>
+          <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
+            textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 }}>
+            Paid by — who handed over the money</div>
+          <input value={paidBy} onChange={e => setPaidBy(e.target.value.slice(0, 80))}
+            placeholder="Leave blank if the borrower paid"
+            style={{ width: "100%", border: "1px solid #cfc9ba", borderRadius: 10,
+              padding: "0 11px", height: 40, fontSize: 13.5, boxSizing: "border-box" }} />
+        </div>
         <div className="hint">{modeHint}</div>
 
         {mode && mode !== "cash" && (

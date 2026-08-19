@@ -4,6 +4,7 @@ import { can } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
 import { dues, roundUp10 } from "@/lib/engine.js";
 import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { viewUrl } from "@/lib/s3.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export async function loadPosition(loanId, branchId) {
   const loan = await one(
     `SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, l.status,
             l.customer_id, l.entity_id, l.branch_id, l.scheme_version_id,
-            c.full_name AS customer_name, s.code AS scheme_code
+            c.full_name AS customer_name, s.code AS scheme_code, l.application_id
        FROM loan l
        JOIN customer c ON c.id = l.customer_id
        JOIN scheme_version sv ON sv.id = l.scheme_version_id
@@ -61,6 +62,18 @@ export async function GET(req, { params }) {
     // Two views: what is owed on a running loan, and what it would take to close
     // today. The minimum-interest floor and the grace forgiveness only apply to
     // the second, so both have to be computed.
+    // №17 — the gold being redeemed, and who co-signed for it
+    const orn = await one(
+      `SELECT fo.thumb_s3_key, fo.s3_key FROM application_photo ap
+         JOIN file_object fo ON fo.id = ap.file_id
+        WHERE ap.application_id = $1 ORDER BY ap.ord LIMIT 1`, [pos.loan.application_id]);
+    const ornamentPhotoUrl = orn
+      ? await viewUrl(orn.thumb_s3_key || orn.s3_key).catch(() => null) : null;
+    const cob = await one(
+      `SELECT c.full_name, c.cust_no FROM loan_application la
+         JOIN customer c ON c.id = la.coborrower_customer_id
+        WHERE la.id = $1 AND la.coborrower_customer_id IS NOT NULL`, [pos.loan.application_id]);
+
     const running = dues(pos.scheme, pos.state, today);
     const closing = dues(pos.scheme, pos.state, today, { closing: true });
 
@@ -72,7 +85,9 @@ export async function GET(req, { params }) {
 
     return NextResponse.json({ ok: true, today,
       loan: { id: pos.loan.id, loanNo: pos.loan.loan_no, customerName: pos.loan.customer_name,
-        schemeCode: pos.loan.scheme_code, disbursedAt: pos.loan.disbursed_at },
+        schemeCode: pos.loan.scheme_code, disbursedAt: pos.loan.disbursed_at,
+        ornamentPhotoUrl, coborrowerName: cob ? cob.full_name : null,
+        coborrowerCustNo: cob ? cob.cust_no : null },
       // balancePaise is what is still payable on each charge — its own rounded
       // figure (R-D) less whatever has already been received against it.
       charges: pos.charges.map(c => {

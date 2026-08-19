@@ -4,6 +4,12 @@ import { kycStatus, mayLend } from "@/lib/customer.js";
 import { viewUrl } from "@/lib/s3.js";
 import { notFound } from "next/navigation";
 import NewPledgeButton from "@/components/NewPledgeButton.js";
+import { currentActor } from "@/lib/session.js";
+import { can } from "@/lib/policy.js";
+import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { dues } from "@/lib/engine.js";
+import BankAccountsClient from "./BankAccountsClient.js";
+import LoanExtrasClient from "./LoanExtrasClient.js";
 export const dynamic = "force-dynamic";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
@@ -17,6 +23,10 @@ export default async function Customer360({ params, searchParams }) {
   const c = await one(
     `SELECT c.*, c.full_name AS "fullName" FROM customer c WHERE c.id = $1`, [id]);
   if (!c) notFound();
+  const actor = await currentActor();
+  const mayEditCust = actor && (can(actor, "settings", { need: "full" }).ok
+    || can(actor, "edit_customer", { need: "full" }).ok);
+  const canCollect = actor && can(actor, "collect", { need: "full" }).ok;
 
   const [photo, addresses, docs, nominee, banks, loans, closed] = await Promise.all([
     one(`SELECT f.s3_key, f.thumb_s3_key FROM customer_photo p JOIN file_object f ON f.id = p.file_id
@@ -28,7 +38,8 @@ export default async function Customer360({ params, searchParams }) {
          FROM customer_document cd JOIN document_type dt ON dt.id = cd.doc_type_id
         WHERE cd.customer_id = $1 ORDER BY dt.category, dt.name`, [id]),
     one(`SELECT name, relation, mobile FROM nominee WHERE customer_id = $1 AND is_current LIMIT 1`, [id]),
-    q(`SELECT bank, bank_branch, account_no, ifsc, holder_name, verified_at, verify_method, cheque_file_id
+    q(`SELECT id, bank, bank_branch, account_no, ifsc, holder_name, acct_type, verified_at,
+              verify_method, cheque_file_id
          FROM customer_bank_account WHERE customer_id = $1 ORDER BY id`, [id]),
     q(`SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, s.code AS scheme,
               (CURRENT_DATE - l.disbursed_at)::int AS age_days,
@@ -47,6 +58,36 @@ export default async function Customer360({ params, searchParams }) {
   const lend = mayLend({ isBlacklisted: c.is_blacklisted, kycDoneAt: c.kyc_done_at }, today);
   const photoUrl = await viewUrl(photo?.thumb_s3_key || photo?.s3_key).catch(() => null);
   const outstanding = loans.reduce((s, l) => s + Number(l.principal_paise), 0);
+
+  // №16 — the three amounts, replayed live from immutable receipts, never stored.
+  const loanIds = loans.map(l => Number(l.id));
+  for (const l of loans) {
+    const sv = await one(`SELECT * FROM scheme_version WHERE id = $1`, [l.scheme_version_id]);
+    const slabs = await q(`SELECT from_day, to_day, rate_pct FROM scheme_slab
+                            WHERE scheme_version_id = $1 ORDER BY from_day`, [l.scheme_version_id]);
+    const lch = await q(
+      `SELECT lc.id, lc.total_paise, ct.name AS charge_name
+         FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
+        WHERE lc.loan_id = $1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [l.id]);
+    const rcp = await q(`SELECT business_date, amount_paise, closes_loan FROM receipt
+                          WHERE loan_id = $1 ORDER BY business_date, id`, [l.id]);
+    const scheme = schemeFromRow(sv, slabs, l.scheme);
+    const state = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.disbursed_at,
+      scheme, charges: lch, receipts: rcp });
+    const closing = dues(scheme, state, today, { closing: true });
+    l.totalOutPaise = closing._paise.settlement;
+    l.outPrincipalPaise = closing._paise.settlement - closing._paise.interestDue
+      - closing._paise.penalDue - closing._paise.chargesDue;
+  }
+
+  // every follow-up, newest first, plus the outcome list for the inline form
+  const followups = loanIds.length ? await q(
+    `SELECT cc.loan_id, cc.method, cc.outcome::text, cc.ptp_date, cc.next_follow_up,
+            cc.note, cc.at::date AS on_date, e.full_name AS by
+       FROM collection_call cc JOIN employee e ON e.id = cc.by_employee
+      WHERE cc.loan_id = ANY($1::bigint[]) ORDER BY cc.at DESC`, [loanIds]) : [];
+  const outcomes = (await one(
+    `SELECT enum_range(NULL::call_outcome)::text[] AS labels`)).labels;
   const cur = addresses.find(a => a.kind === "current");
 
   return (
@@ -78,10 +119,6 @@ export default async function Customer360({ params, searchParams }) {
               <div style={{ fontWeight: 900, fontSize: 18, lineHeight: 1.25 }}>{c.fullName}</div>
               <div className="mono" style={{ color: "var(--mut)", fontSize: 13, marginTop: 3 }}>
                 {c.cust_no}<br />{c.mobile}</div>
-              <a href={`/customers/${c.id}/edit`} style={{ display: "inline-block", marginTop: 8,
-                fontSize: 12.5, fontWeight: 800, color: "var(--vault)",
-                textDecoration: "none", border: "1px solid #cfc9ba", borderRadius: 9,
-                padding: "5px 12px" }}>✎ Edit contact / address / nominee</a>
             </div>
           </div>
 
@@ -129,15 +166,48 @@ export default async function Customer360({ params, searchParams }) {
                   <div style={{ color: "var(--mut)", fontSize: 13 }}>
                     {l.scheme} · {g(l.net_mg)} g · day {l.age_days}</div>
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <div style={{ fontSize: 11, color: "var(--mut)", fontWeight: 800 }}>PRINCIPAL</div>
-                  <div className="mono" style={{ fontWeight: 800 }}>{inr(l.principal_paise)}</div>
+                <div style={{ display: "flex", gap: 16, textAlign: "right", flexWrap: "wrap" }}>
+                  <div><div style={{ fontSize: 10.5, color: "var(--mut)", fontWeight: 800 }}>ORIGINAL</div>
+                    <div className="mono" style={{ fontWeight: 700 }}>{inr(l.principal_paise)}</div></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--mut)", fontWeight: 800 }}>PRINCIPAL O/S</div>
+                    <div className="mono" style={{ fontWeight: 700 }}>{inr(l.outPrincipalPaise)}</div></div>
+                  <div><div style={{ fontSize: 10.5, color: "var(--brass)", fontWeight: 800 }}>TOTAL O/S</div>
+                    <div className="mono" style={{ fontWeight: 800, color: "var(--brass)" }}>
+                      {inr(l.totalOutPaise)}</div></div>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <button className="btn ghost" disabled style={{ fontSize: 13, padding: "8px 12px" }}>Renew</button>
                   <a href={`/repay/${l.id}`} className="btn green"
                     style={{ fontSize: 13, padding: "8px 12px", textDecoration: "none" }}>Collect</a>
                 </div>
+                <LoanExtrasClient loanId={Number(l.id)} outcomes={outcomes} today={today}
+                  canCollect={!!canCollect} />
+                {(() => {
+                  const fus = followups.filter(f => Number(f.loan_id) === Number(l.id));
+                  if (!fus.length) return null;
+                  const next = fus.find(f => f.next_follow_up);
+                  return (
+                    <div style={{ width: "100%", background: "#faf9f4", borderRadius: 10,
+                      padding: "8px 12px" }}>
+                      <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em",
+                        textTransform: "uppercase", color: "var(--mut)", marginBottom: 4 }}>
+                        Follow-ups · {fus.length}
+                        {next?.next_follow_up &&
+                          <span className={"chip " + (String(next.next_follow_up) <= today
+                            ? "warn" : "mut")} style={{ marginLeft: 8 }}>
+                            next: {String(next.next_follow_up).slice(0, 10)}</span>}
+                      </div>
+                      {fus.map((f, i) => (
+                        <div key={i} style={{ fontSize: 12.5, color: "#4a4d42", padding: "3px 0",
+                          borderTop: i ? "1px dashed #e8e4d8" : 0 }}>
+                          <span className="mono" style={{ color: "var(--mut)" }}>
+                            {String(f.on_date).slice(0, 10)}</span>
+                          {" · "}{f.method || "call"} · <b>{f.outcome}</b>
+                          {f.ptp_date ? ` · PTP ${String(f.ptp_date).slice(0, 10)}` : ""}
+                          {f.next_follow_up ? ` · next ${String(f.next_follow_up).slice(0, 10)}` : ""}
+                          {" · "}{f.by}{f.note ? ` — ${f.note}` : ""}</div>))}
+                    </div>);
+                })()}
               </div>))}
             {loans.length > 0 && <div className="hint" style={{ marginTop: 8 }}>
               Dues are priced live by the interest engine from this loan&rsquo;s receipts.</div>}
@@ -145,19 +215,11 @@ export default async function Customer360({ params, searchParams }) {
 
           <div className="card">
             <K>Bank accounts</K>
-            {banks.length === 0 && <div style={{ color: "var(--mut)", fontSize: 14 }}>None on file.</div>}
-            {banks.map((b, i) => (
-              <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0, padding: "10px 0",
-                display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{b.bank}{b.bank_branch ? " · " + b.bank_branch : ""}</div>
-                  <div className="mono" style={{ color: "var(--mut)", fontSize: 12.5 }}>
-                    ····{String(b.account_no).slice(-4)} · {b.ifsc} · {b.holder_name}</div>
-                </div>
-                <span className={"chip " + (b.verified_at || b.cheque_file_id ? "ok" : "warn")}>
-                  {b.verified_at ? "verified ✓" : b.cheque_file_id ? "cheque on file ✓" : "unverified — cannot receive money"}
-                </span>
-              </div>))}
+            <BankAccountsClient customerId={Number(c.id)} mayEdit={!!mayEditCust}
+              accounts={banks.map(b => ({ id: Number(b.id), bank: b.bank,
+                bankBranch: b.bank_branch, accountNo: String(b.account_no), ifsc: b.ifsc,
+                holderName: b.holder_name, acctType: b.acct_type,
+                verifiedAt: b.verified_at ? String(b.verified_at) : null }))} />
           </div>
 
           <div className="card">

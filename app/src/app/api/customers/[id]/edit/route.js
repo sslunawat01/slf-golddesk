@@ -14,8 +14,12 @@ export const dynamic = "force-dynamic";
 export async function POST(req, { params }) {
   const actor = await currentActor();
   if (!actor) return NextResponse.json({ ok: false, reason: "Signed out" }, { status: 401 });
-  if (!can(actor, "appraise", { need: "full" }).ok && !can(actor, "collect", { need: "full" }).ok)
-    return NextResponse.json({ ok: false, reason: "You may not edit customers" }, { status: 403 });
+  // №4 (owner): contact/address/nominee edits are a granted right, not a
+  // side-effect of counter permissions. Settings-full always may.
+  if (!can(actor, "settings", { need: "full" }).ok
+      && !can(actor, "edit_customer", { need: "full" }).ok)
+    return NextResponse.json({ ok: false,
+      reason: "You may not edit customers — ask for the Edit customer permission" }, { status: 403 });
 
   const { id } = await params;
   const cust = await one(
