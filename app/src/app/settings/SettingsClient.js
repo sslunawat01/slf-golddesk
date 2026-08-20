@@ -7,8 +7,9 @@ import RolesTab from "./RolesTab.js";
 import EmployeesTab from "./EmployeesTab.js";
 import MetalsTab from "./MetalsTab.js";
 import ItemsTab from "./ItemsTab.js";
+import BanksTab from "./BanksTab.js";
 
-const TABS = ["Charges", "Branches", "Schemes", "Roles", "Employees", "Metals", "Items"];
+const TABS = ["Charges", "Branches", "Schemes", "Roles", "Employees", "Metals", "Items", "Banks"];
 
 export default function SettingsClient() {
   const [tab, setTab] = useState("Charges");
@@ -34,6 +35,7 @@ export default function SettingsClient() {
       {tab === "Employees" && <EmployeesTab />}
       {tab === "Metals" && <MetalsTab />}
       {tab === "Items" && <ItemsTab />}
+      {tab === "Banks" && <BanksTab />}
     </>
   );
 }

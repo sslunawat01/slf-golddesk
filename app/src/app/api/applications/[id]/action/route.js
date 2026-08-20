@@ -162,8 +162,13 @@ export async function POST(req, { params }) {
         { status: 409 });
 
     const principal = Number(app.requested_paise);
+    // №15 (owner finding, 20 Aug 2026): GST reads from the charge master's
+    // Processing row — 18 survives only as the fallback when no row exists.
+    const ct = await one(
+      `SELECT id, gst_pct FROM charge_type WHERE name='Processing' AND active LIMIT 1`);
     const charge = docCharge({ principalPaise: principal, pct: Number(app.doc_charge_pct || 0),
-      minPaise: Number(app.doc_charge_min_paise || 0), maxPaise: Number(app.doc_charge_max_paise || 0), gstPct: 18 });
+      minPaise: Number(app.doc_charge_min_paise || 0), maxPaise: Number(app.doc_charge_max_paise || 0),
+      gstPct: ct ? Number(ct.gst_pct) : 18 });
 
     // verify every named account really belongs to this customer and is verified
     const legs = [];
@@ -210,7 +215,7 @@ export async function POST(req, { params }) {
           [d.id, l.accountId, l.amountPaise, body.utr || null]);
 
       if (charge.totalPaise > 0) {
-        const ct = await one(`SELECT id FROM charge_type WHERE name='Processing' AND active LIMIT 1`);
+        // ct already fetched above — same row prices and ledgers the charge
         if (ct) await cl.query(
           `INSERT INTO loan_charge (loan_id, charge_type_id, base_paise, gst_paise, total_paise, floor_paise, narration, added_by)
            VALUES ($1,$2,$3,$4,$5,$5,'Processing charge — recovered at first repayment',$6)`,

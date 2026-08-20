@@ -183,6 +183,7 @@ export default function SchemesTab() {
 
 // ————————————————————— version row with publish and allocation —————————————————————
 function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
+  const [showAll, setShowAll] = useState(false);
   const [alloc, setAlloc] = useState(null); // branch ids while editing
   const termsText = v.calc_method === "simple"
     ? `${Number(v.interest_pct)}% p.a.`
@@ -217,6 +218,9 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
         <td style={{ ...td, fontFamily: "ui-monospace,monospace" }}>{v.loans_on_it}</td>
         <td style={td}><span className={"chip " + chipClass}>{chip}</span></td>
         <td style={{ ...td, textAlign: "right", whiteSpace: "nowrap" }}>
+          <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12,
+              marginRight: 6 }}
+            onClick={() => setShowAll(!showAll)}>{showAll ? "Hide details" : "Details"}</button>
           {data.canEdit && v.status === "draft" && (
             <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
               disabled={busy} onClick={publish}>Publish</button>)}
@@ -255,6 +259,42 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
             <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
               disabled={busy || !alloc.length} onClick={saveAlloc}>Save allocation</button>
           </div>
+        </td></tr>
+      )}
+      {showAll && (
+        <tr><td colSpan={9} style={{ padding: 0, border: 0 }}>
+        <div style={{ background: "#faf9f4", border: "1px solid #f0ede4",
+          borderRadius: 10, padding: "10px 14px", margin: "6px 0", fontSize: 12.5 }}>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em",
+            textTransform: "uppercase", color: "var(--mut)", marginBottom: 6 }}>
+            Every figure of v{v.version_no} — what a loan on this version lives by</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))",
+            gap: "4px 18px" }}>
+            {[["Funding %", v.funding_pct + "%"],
+              ["Tenure", v.tenure_days + " days"],
+              ["Days in year", v.days_in_year],
+              ["Min interest", v.min_interest_days + " days"],
+              ["Rounding step", "₹" + (v.round_step_paise / 100)],
+              ["Penal rate", v.penal_rate_pct + "% p.a."],
+              ["Penal grace", v.penal_grace_days + " days"],
+              ["Slab mode", v.slab_mode],
+              ["Doc charge", v.doc_charge_pct + "% (₹" + (v.doc_charge_min_paise / 100)
+                + "–₹" + (v.doc_charge_max_paise / 100) + ")"],
+              ["Admin fee", "₹" + (v.admin_fee_paise / 100)],
+              ["Loan band", "₹" + (v.min_loan_paise / 100).toLocaleString("en-IN")
+                + " – ₹" + (v.max_loan_paise / 100).toLocaleString("en-IN")],
+              ["Status", v.status]].map(([k2, v2]) => (
+              <div key={k2} style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ color: "var(--mut)" }}>{k2}</span>
+                <b className="mono">{String(v2)}</b></div>))}
+          </div>
+          <div style={{ marginTop: 8 }}>
+            <span style={{ color: "var(--mut)" }}>Interest slabs: </span>
+            {(slabsOf(v.id) || []).map(sl =>
+              <span key={sl.from_day} className="chip mut" style={{ marginRight: 4 }}>
+                day {sl.from_day}{sl.to_day ? "–" + sl.to_day : "+"} · {sl.rate_pct}%</span>)}
+          </div>
+        </div>
         </td></tr>
       )}
     </>

@@ -39,6 +39,10 @@ export default function LoanExtrasClient({ loanId, outcomes, today, canCollect }
         <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12 }}
           onClick={() => { setMode(mode === "doc" ? null : "doc"); setChip(null); }}>
           📎 Document</button>
+        <a href={`/print/appraisal/${loanId}`} target="_blank" className="btn ghost"
+          style={{ padding: "6px 11px", fontSize: 12, textDecoration: "none" }}>🖨 Appraisal</a>
+        <a href={`/print/kfs/${loanId}`} target="_blank" className="btn ghost"
+          style={{ padding: "6px 11px", fontSize: 12, textDecoration: "none" }}>🖨 Agreement/KFS</a>
       </div>
 
       {mode === "fu" && (
