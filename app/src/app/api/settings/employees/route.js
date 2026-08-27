@@ -105,6 +105,7 @@ export async function POST(req) {
       if (problems.length) return bad(problems);
       if (b.gender && !en.genders.includes(b.gender)) return bad(["Unknown gender option"]);
 
+      const photoId = Number(b.photoFileId?.fileId ?? b.photoFileId) || null;
       const dup = await one(`SELECT id FROM employee WHERE lower(username) = lower($1)`, [v4.username]);
       if (dup) return bad(["That username is already taken"], 409);
 
@@ -122,7 +123,7 @@ export async function POST(req) {
                    $14, $15, $16, $17, COALESCE($18, 'permanent')::employment_type,
                    $19, $20, $21, $22, FALSE, $23)
            RETURNING id`,
-          [v1.fullName, b.gender || null, b.dob || null, b.photoFileId || null,
+          [v1.fullName, b.gender || null, b.dob || null, photoId,
            v1.mobile, v1.altMobile, b.personalEmail || null, b.bloodGroup || null,
            titleCaseName(b.fatherSpouseName) || null,
            v2.aadhaarLast4, v2.aadhaarNo, v2.panNo, JSON.stringify(b.address || {}),
@@ -175,7 +176,7 @@ export async function POST(req) {
            b.personalEmail || null, b.bloodGroup || null, titleCaseName(b.fatherSpouseName) || null,
            v2.aadhaarLast4, v2.aadhaarNo, v2.panNo, String(b.designation).trim(),
            b.department || null, b.reportsTo || null, b.employmentType || null,
-           b.officialEmail || null, b.photoFileId || null, actor.employeeId]);
+           b.officialEmail || null, Number(b.photoFileId?.fileId ?? b.photoFileId) || null, actor.employeeId]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "employee", entityId: emp.id, action: "update",
           before: { name: emp.full_name }, after: { name: v1.fullName } });
@@ -275,6 +276,7 @@ export async function POST(req) {
 
     return NextResponse.json({ ok: false, reason: "Unknown action" }, { status: 400 });
   } catch (e) {
+    console.error("[employees] SAVE FAILED:", e.message);
     if (String(e.message || "").includes("employee_username_key"))
       return NextResponse.json({ ok: false, reason: "That username is already taken" }, { status: 409 });
     if (String(e.message || "").includes("employee_aadhaar_no_key"))

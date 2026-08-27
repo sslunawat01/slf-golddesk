@@ -8,7 +8,7 @@ const I = { width: "100%", border: "1px solid #cfc9ba", borderRadius: 10, paddin
   height: 40, fontSize: 13.5, background: "#fff", boxSizing: "border-box" };
 const BLOOD = ["A+", "A−", "B+", "B−", "AB+", "AB−", "O+", "O−"];
 
-const blank = () => ({ fullName: "", gender: "", dob: "", photoFileId: null, mobile: "", altMobile: "",
+const blank = () => ({ fullName: "", gender: "", dob: "", photo: null, photoFileId: null, mobile: "", altMobile: "",
   personalEmail: "", bloodGroup: "", fatherSpouseName: "",
   aadhaarLast4: "", panNo: "", address: {},
   designation: "", department: "",
@@ -275,7 +275,7 @@ export default function EmployeesTab() {
               <input style={I} value={w.personalEmail} onChange={setW("personalEmail")} /></div>
             <div style={{ gridColumn: "1/-1" }}>
               <PhotoInput kind="employee_face" label="Photo at the counter" square
-                value={w.photoFileId} onChange={(v) => setWiz({ ...w, photoFileId: v })}
+                value={w.photo} onChange={(v) => setWiz({ ...w, photo: v, photoFileId: v?.fileId ?? null })}
                 hint="Optional now — used on the employee card and for face sign-in later." /></div>
           </div>}
 

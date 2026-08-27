@@ -9,7 +9,6 @@ import { can } from "@/lib/policy.js";
 import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
 import { dues } from "@/lib/engine.js";
 import BankAccountsClient from "./BankAccountsClient.js";
-import LoanExtrasClient from "./LoanExtrasClient.js";
 export const dynamic = "force-dynamic";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
@@ -41,7 +40,8 @@ export default async function Customer360({ params, searchParams }) {
     q(`SELECT id, bank, bank_branch, account_no, ifsc, holder_name, acct_type, verified_at,
               verify_method, cheque_file_id
          FROM customer_bank_account WHERE customer_id = $1 ORDER BY id`, [id]),
-    q(`SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, s.code AS scheme,
+    q(`SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, l.scheme_version_id,
+              s.code AS scheme,
               (CURRENT_DATE - l.disbursed_at)::int AS age_days,
               (SELECT COALESCE(sum(ai.net_mg),0) FROM appraisal_item ai
                 WHERE ai.application_id = l.application_id)::int AS net_mg
@@ -162,7 +162,10 @@ export default async function Customer360({ params, searchParams }) {
               <div key={l.id} style={{ borderTop: "1px solid var(--line)", padding: "12px 0",
                 display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
                 <div>
-                  <div className="mono" style={{ fontWeight: 800 }}>{l.loan_no}</div>
+                  <a href={`/loans/${l.id}`} className="mono" style={{ fontWeight: 800,
+                    color: "inherit", textDecoration: "none" }}
+                    title="Open the loan profile">{l.loan_no} <span style={{ color: "var(--mut)",
+                    fontWeight: 400 }}>›</span></a>
                   <div style={{ color: "var(--mut)", fontSize: 13 }}>
                     {l.scheme} · {g(l.net_mg)} g · day {l.age_days}</div>
                 </div>
@@ -175,39 +178,21 @@ export default async function Customer360({ params, searchParams }) {
                     <div className="mono" style={{ fontWeight: 800, color: "var(--brass)" }}>
                       {inr(l.totalOutPaise)}</div></div>
                 </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <button className="btn ghost" disabled style={{ fontSize: 13, padding: "8px 12px" }}>Renew</button>
-                  <a href={`/repay/${l.id}`} className="btn green"
-                    style={{ fontSize: 13, padding: "8px 12px", textDecoration: "none" }}>Collect</a>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  {(() => {
+                    const fus = followups.filter(f => Number(f.loan_id) === Number(l.id));
+                    const next = fus.find(f => f.next_follow_up);
+                    return next?.next_follow_up
+                      ? <span className={"chip " + (String(next.next_follow_up) <= today
+                          ? "warn" : "mut")}>next f/up {String(next.next_follow_up).slice(0, 10)}</span>
+                      : null;
+                  })()}
+                  <a href={`/loans/${l.id}`} className="btn ghost"
+                    style={{ fontSize: 13, padding: "8px 14px", textDecoration: "none" }}>
+                    View details →</a>
+                  {canCollect && <a href={`/repay/${l.id}`} className="btn green"
+                    style={{ fontSize: 13, padding: "8px 14px", textDecoration: "none" }}>Collect</a>}
                 </div>
-                <LoanExtrasClient loanId={Number(l.id)} outcomes={outcomes} today={today}
-                  canCollect={!!canCollect} />
-                {(() => {
-                  const fus = followups.filter(f => Number(f.loan_id) === Number(l.id));
-                  if (!fus.length) return null;
-                  const next = fus.find(f => f.next_follow_up);
-                  return (
-                    <div style={{ width: "100%", background: "#faf9f4", borderRadius: 10,
-                      padding: "8px 12px" }}>
-                      <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em",
-                        textTransform: "uppercase", color: "var(--mut)", marginBottom: 4 }}>
-                        Follow-ups · {fus.length}
-                        {next?.next_follow_up &&
-                          <span className={"chip " + (String(next.next_follow_up) <= today
-                            ? "warn" : "mut")} style={{ marginLeft: 8 }}>
-                            next: {String(next.next_follow_up).slice(0, 10)}</span>}
-                      </div>
-                      {fus.map((f, i) => (
-                        <div key={i} style={{ fontSize: 12.5, color: "#4a4d42", padding: "3px 0",
-                          borderTop: i ? "1px dashed #e8e4d8" : 0 }}>
-                          <span className="mono" style={{ color: "var(--mut)" }}>
-                            {String(f.on_date).slice(0, 10)}</span>
-                          {" · "}{f.method || "call"} · <b>{f.outcome}</b>
-                          {f.ptp_date ? ` · PTP ${String(f.ptp_date).slice(0, 10)}` : ""}
-                          {f.next_follow_up ? ` · next ${String(f.next_follow_up).slice(0, 10)}` : ""}
-                          {" · "}{f.by}{f.note ? ` — ${f.note}` : ""}</div>))}
-                    </div>);
-                })()}
               </div>))}
             {loans.length > 0 && <div className="hint" style={{ marginTop: 8 }}>
               Dues are priced live by the interest engine from this loan&rsquo;s receipts.</div>}

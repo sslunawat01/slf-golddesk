@@ -163,6 +163,11 @@ export default function Login({ rate }) {
             style={{ ...S.btn, marginTop: 16, opacity: disabled ? 0.4 : 1,
                      cursor: disabled ? "not-allowed" : "pointer" }}>
             {busy ? "Checking…" : "Sign in"}</button>
+
+          <div style={{ textAlign: "center", marginTop: 12 }}>
+            <a href="/forgot" style={{ color: "#5f8f7b", fontSize: 12, fontWeight: 700,
+                 textDecoration: "none" }}>Forgot password?</a>
+          </div>
         </form>
 
         <div style={{ textAlign: "center", marginTop: 18 }}>

@@ -43,7 +43,6 @@ export default function NewCustomerClient({ docTypes, prefill }) {
   const [busy, setBusy] = useState(false);
   const [chip, setChip] = useState(null);
   const [confirmBlacklist, setConfirmBlacklist] = useState(false);
-  const [otp, setOtp] = useState(null);
   const [pin, setPin] = useState({});
   const [note, setNote] = useState({});
 
@@ -89,16 +88,6 @@ export default function NewCustomerClient({ docTypes, prefill }) {
   function verifyEmail() {
     if (!String(c.email).includes("@")) return say("email", "Enter a valid email address", "bad");
     set({ emailVerified: true }); say("email", "Email verified");
-  }
-  async function sendOtp() {
-    const r = await post("/api/otp", { action: "send", mobile: c.mobile });
-    if (!r.ok) return setOtp({ err: r.reason });
-    setOtp({ manualCode: r.manualCode, code: "" });
-  }
-  async function checkOtp() {
-    const r = await post("/api/otp", { action: "verify", mobile: c.mobile, code: otp.code });
-    if (!r.ok) return setOtp({ ...otp, err: r.reason });
-    set({ mobileVerified: true }); setOtp(null);
   }
   async function lookupPin(which, value) {
     setIn(which, { pincode: value });
@@ -279,17 +268,10 @@ export default function NewCustomerClient({ docTypes, prefill }) {
 
         {tab === 1 && <>
           <div className="fg3">
-            <F label="Mobile number *"
-               hint={c.mobileVerified ? null : "verification optional until the SMS gateway is connected"}>
-              <div style={{ display: "flex", gap: 6 }}>
-                <input className="i mono" inputMode="numeric" maxLength={11} placeholder="00000 00000"
-                  value={formatMobile(c.mobile)}
-                  onChange={e => { set({ mobile: cleanDigits(e.target.value), mobileVerified: false }); setOtp(null); }} />
-                <button className="btn ghost" type="button" style={{ padding: "0 12px", whiteSpace: "nowrap" }}
-                  disabled={!isMobile(c.mobile) || c.mobileVerified} onClick={sendOtp}>
-                  {c.mobileVerified ? "Verified ✓" : otp ? "Resend" : "Verify"}</button>
-              </div>
-              {c.mobileVerified && <span className="chip ok" style={{ marginTop: 6 }}>mobile verified by OTP</span>}
+            <F label="Mobile number *">
+              <input className="i mono" inputMode="numeric" maxLength={11} placeholder="00000 00000"
+                value={formatMobile(c.mobile)}
+                onChange={e => set({ mobile: cleanDigits(e.target.value) })} />
             </F>
             <F label="Alternate mobile"><input className="i mono" inputMode="numeric" maxLength={11}
               placeholder="00000 00000" value={formatMobile(c.altMobile)}
@@ -511,41 +493,6 @@ export default function NewCustomerClient({ docTypes, prefill }) {
         </div>
       </div>
       {chip && <div style={{ marginTop: 10 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
-
-      {otp && !c.mobileVerified && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.6)", display: "grid",
-          placeItems: "center", zIndex: 40, padding: 16 }}
-          onClick={e => { if (e.target === e.currentTarget) setOtp(null); }}>
-          <div className="card" style={{ maxWidth: 400, width: "100%" }}>
-            <h2 style={{ fontSize: 19, fontWeight: 900 }}>Verify mobile number</h2>
-            <p style={{ color: "var(--mut)", fontSize: 13.5, margin: "8px 0 14px" }}>
-              A 6-digit code for <span className="mono">{formatMobile(c.mobile)}</span>.
-            </p>
-            {otp.manualCode && (
-              <div style={{ background: "var(--warn-bg)", borderRadius: 11, padding: "12px 14px",
-                marginBottom: 14 }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "var(--warn)" }}>
-                  SMS gateway not connected — read this code to the customer</div>
-                <div className="mono" style={{ fontSize: 28, fontWeight: 900, letterSpacing: ".2em",
-                  color: "var(--warn)", marginTop: 6 }}>{otp.manualCode}</div>
-              </div>)}
-            <label className="f">Enter the code</label>
-            <input className="i mono" inputMode="numeric" maxLength={6} autoFocus placeholder="000000"
-              style={{ letterSpacing: ".3em", fontSize: 20, textAlign: "center" }} value={otp.code || ""}
-              onChange={e => setOtp({ ...otp, code: e.target.value.replace(/\D/g, ""), err: null })} />
-            {otp.err && <div style={{ marginTop: 10 }}><span className="chip bad">{otp.err}</span></div>}
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, marginTop: 16 }}>
-              <button className="btn ghost" type="button" onClick={sendOtp}>Resend</button>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn ghost" type="button" onClick={() => setOtp(null)}>Skip for now</button>
-                <button className="btn green" type="button" disabled={(otp.code || "").length !== 6}
-                  onClick={checkOtp}>Confirm</button>
-              </div>
-            </div>
-            <div className="hint" style={{ marginTop: 10 }}>
-              Verification is optional until the SMS gateway is connected.</div>
-          </div>
-        </div>)}
 
       {confirmBlacklist && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.6)", display: "grid",
