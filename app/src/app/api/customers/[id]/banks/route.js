@@ -30,6 +30,7 @@ export async function POST(req, { params }) {
   if (!cust) return NextResponse.json({ ok: false, reason: "Customer not found" }, { status: 404 });
 
   const b = await req.json().catch(() => ({}));
+  const skipFieldChecks = b.action === "verify";   // verify carries only an id
   const problems = [];
   const accountNo = String(b.accountNo || "").replace(/\s/g, "");
   const ifsc = String(b.ifsc || "").trim().toUpperCase();
@@ -37,10 +38,29 @@ export async function POST(req, { params }) {
   if (!/^\d{6,20}$/.test(accountNo)) problems.push("Account number must be 6–20 digits");
   if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) problems.push("IFSC must look like SBIN0001234");
   if (holder.length < 3) problems.push("Account holder name must be at least 3 characters");
-  if (problems.length)
+  if (problems.length && !skipFieldChecks)
     return NextResponse.json({ ok: false, reason: problems[0], problems }, { status: 400 });
 
   try {
+    if (b.action === "verify") {
+      // W9: manual on-screen verification until the penny-drop API (O11).
+      const cur = await one(
+        `SELECT * FROM customer_bank_account WHERE id=$1 AND customer_id=$2`, [b.id, id]);
+      if (!cur) return NextResponse.json({ ok: false, reason: "Account not found" }, { status: 404 });
+      if (cur.verified_at)
+        return NextResponse.json({ ok: false, reason: "Already verified" }, { status: 409 });
+      await tx(async (cl) => {
+        await cl.query(
+          `UPDATE customer_bank_account
+              SET verify_method='manual', verified_at=now() WHERE id=$1`, [cur.id]);
+        await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+          table: "customer_bank_account", entityId: cur.id, action: "bank_verified_manual",
+          after: { by: actor.employeeId, method: "manual",
+                   note: "operator confirmed proof on screen — W9, pre penny-drop" } });
+      });
+      return NextResponse.json({ ok: true });
+    }
+
     if (b.action === "edit") {
       const cur = await one(
         `SELECT * FROM customer_bank_account WHERE id = $1 AND customer_id = $2`, [b.id, cust.id]);

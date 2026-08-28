@@ -32,8 +32,10 @@ export function validSlfBank(b = {}) {
     problems.push("Tick at least one use — disbursement, collection, or both");
   const branchIds = [...new Set((Array.isArray(b.branchIds) ? b.branchIds : [])
     .map(Number).filter(n => n > 0))];
+  const scopeAll = b.scopeAll !== false;   // explicit scope (mig 019); default all
   return { ok: problems.length === 0, problems, nickname, bank, ifsc, accountNo, masked,
-    branchIds, ledgerId: Number(b.ledgerId) || null,
+    branchIds: scopeAll ? [] : branchIds, scopeAll,
+    ledgerId: Number(b.ledgerId) || null,
     allowDisbursement: !!b.allowDisbursement, allowCollection: !!b.allowCollection };
 }
 

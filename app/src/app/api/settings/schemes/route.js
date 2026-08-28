@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_schemes", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -53,13 +53,16 @@ export async function GET() {
 
   return NextResponse.json({ ok: true,
     daysDefault, schemes, versions, slabs, alloc, branches,
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_schemes", { need: "add" }).ok || can(actor, "set_schemes", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_schemes", { need: "add" }).ok,
+             edit: can(actor, "set_schemes", { need: "edit" }).ok,
+             del: can(actor, "set_schemes", { need: "delete" }).ok } });
 }
 
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
 
     const b = await req.json().catch(() => ({}));
@@ -67,6 +70,9 @@ export async function POST(req) {
 
     // ————————— create a scheme, or a new version of one —————————
     if (action === "save_draft") {
+      const _need = b.versionId ? "edit" : "add";
+      if (!can(actor, "set_schemes", { need: _need }).ok)
+        return NextResponse.json({ ok: false, reason: `You may not ${_need === "add" ? "create" : "edit"} schemes` }, { status: 403 });
       const isNew = !b.schemeId;
       const existingCodes = (await q(`SELECT code FROM scheme`)).map(r => r.code);
       const v = validSchemeVersion({ ...b.form, code: b.code, name: b.name,
@@ -152,6 +158,8 @@ export async function POST(req) {
 
     // ————————— delete a draft (never-published only) —————————
     if (action === "delete_draft") {
+      if (!can(actor, "set_schemes", { need: "delete" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not delete this — ask for the Delete permission on Settings · schemes" }, { status: 403 });
       const sv = await one(`SELECT * FROM scheme_version WHERE id=$1`, [b.versionId]);
       if (!sv) return NextResponse.json({ ok: false, reason: "Version not found" }, { status: 404 });
       if (sv.status !== "draft")
@@ -187,6 +195,8 @@ export async function POST(req) {
     // W6: single-person publish, relaxed by migration 010. When maker/checker
     // arrives, this becomes submit-for-approval instead.
     if (action === "publish") {
+      if (!can(actor, "set_schemes", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · schemes" }, { status: 403 });
       const sv = await one(`SELECT * FROM scheme_version WHERE id=$1`, [b.versionId]);
       if (!sv) return NextResponse.json({ ok: false, reason: "Version not found" }, { status: 404 });
       if (sv.status !== "draft")
@@ -200,8 +210,8 @@ export async function POST(req) {
         reason: "Cannot publish: " + v.problems[0], problems: v.problems }, { status: 400 });
 
       const branchIds = (b.branchIds || []).map(Number).filter(Boolean);
-      if (!branchIds.length)
-        return NextResponse.json({ ok: false, reason: "Tick at least one branch that may lend on this scheme" }, { status: 400 });
+      // owner (28 Aug 2026): zero branches is allowed — the version goes live
+      // but is offered nowhere until branches are ticked (parked scheme).
       const ho = await q(`SELECT id FROM branch WHERE id = ANY($1) AND is_ho`, [branchIds]);
       if (ho.length)
         return NextResponse.json({ ok: false, reason: "Head Office cannot lend — untick it" }, { status: 400 });
@@ -230,11 +240,12 @@ export async function POST(req) {
 
     // ————————— allocation on an already-published version —————————
     if (action === "allocate") {
+      if (!can(actor, "set_schemes", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · schemes" }, { status: 403 });
       const sv = await one(`SELECT * FROM scheme_version WHERE id=$1 AND status='published'`, [b.versionId]);
       if (!sv) return NextResponse.json({ ok: false, reason: "No published version with that id" }, { status: 404 });
       const branchIds = (b.branchIds || []).map(Number).filter(Boolean);
-      if (!branchIds.length)
-        return NextResponse.json({ ok: false, reason: "Tick at least one branch" }, { status: 400 });
+      // zero branches allowed — parks the scheme (owner, 28 Aug 2026)
       const ho = await q(`SELECT id FROM branch WHERE id = ANY($1) AND is_ho`, [branchIds]);
       if (ho.length)
         return NextResponse.json({ ok: false, reason: "Head Office cannot lend — untick it" }, { status: 400 });
@@ -255,6 +266,8 @@ export async function POST(req) {
     // Every scheme version still PINS its own figure for life; this only
     // pre-fills the wizard.
     if (b.action === "set_days_default") {
+      if (!can(actor, "set_schemes", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · schemes" }, { status: 403 });
       const d = Number(b.days);
       if (!Number.isInteger(d) || d < 300 || d > 370)
         return NextResponse.json({ ok: false,

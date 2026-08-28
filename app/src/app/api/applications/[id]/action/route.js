@@ -156,6 +156,15 @@ export async function POST(req, { params }) {
   if (action === "disburse") {
     if (!can(actor, "disburse", { need: "full" }).ok)
       return NextResponse.json({ ok: false, reason: "You may not disburse" }, { status: 403 });
+    // Maker ≠ checker (owner, 28 Aug 2026): the approver never disburses.
+    const approvedByMe = await one(
+      `SELECT 1 FROM loan_state_history
+        WHERE application_id = $1 AND to_state = 'approved' AND by_employee = $2 LIMIT 1`,
+      [id, actor.employeeId]);
+    if (approvedByMe)
+      return NextResponse.json({ ok: false,
+        reason: "You approved this loan — a different person must disburse it (maker ≠ checker)" },
+        { status: 403 });
     if (app.status !== "approved")
       return NextResponse.json({ ok: false,
         reason: app.status === "pending_ho" ? "Still waiting for Head Office approval" : `Application is ${app.status}` },

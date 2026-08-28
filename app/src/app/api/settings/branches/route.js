@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_branches", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -29,13 +29,16 @@ export async function GET() {
             (SELECT count(*) FROM loan l WHERE l.branch_id=b.id AND l.status='active')::int AS active_loans
        FROM branch b ORDER BY b.id`);
   return NextResponse.json({ ok: true, entities, branches,
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_branches", { need: "add" }).ok || can(actor, "set_branches", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_branches", { need: "add" }).ok,
+             edit: can(actor, "set_branches", { need: "edit" }).ok,
+             del: can(actor, "set_branches", { need: "delete" }).ok } });
 }
 
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
 
     const b = await req.json().catch(() => ({}));
@@ -45,6 +48,8 @@ export async function POST(req) {
     // year's number-series prefixes refresh so documents issued from this
     // moment carry the new code; counters continue; old numbers stay forever.
     if (b.id) {
+      if (!can(actor, "set_branches", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — Edit permission needed" }, { status: 403 });
       const cur = await one(`SELECT * FROM branch WHERE id=$1`, [b.id]);
       if (!cur) return NextResponse.json({ ok: false, reason: "Branch not found" }, { status: 404 });
       const others = (await q(`SELECT code FROM branch WHERE id <> $1`, [b.id])).map(r => r.code);
@@ -108,6 +113,8 @@ export async function POST(req) {
     }
 
     // —————————— create ——————————
+    if (!can(actor, "set_branches", { need: "add" }).ok)
+      return NextResponse.json({ ok: false, reason: "You may not create here — Add permission needed" }, { status: 403 });
     const existing = (await q(`SELECT code FROM branch`)).map(r => r.code);
     const v = validBranch({ ...b, existingCodes: existing });
     if (!v.ok) return NextResponse.json({ ok: false, reason: v.problems[0], problems: v.problems }, { status: 400 });

@@ -80,7 +80,8 @@ export function validEmployment(b = {}, employmentTypes = []) {
   const branchIds = (b.branchIds || []).map(Number).filter(Boolean);
   if (roleIds.length === 0)
     problems.push("Tick at least one role — with no role the person can sign in but do nothing");
-  if (branchIds.length === 0) problems.push("Tick at least one branch");
+  // owner (28 Aug 2026): branch posting is OPTIONAL — an unposted employee
+  // exists but cannot sign in anywhere until posted.
   const primary = Number(b.primaryBranchId || 0);
   if (primary && !branchIds.includes(primary))
     problems.push("The primary branch must be one of the ticked branches");

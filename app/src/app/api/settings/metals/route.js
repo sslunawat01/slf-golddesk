@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_metals", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -44,7 +44,10 @@ export async function GET() {
     purities: purities.map(p => ({ id: Number(p.id), metalId: Number(p.metal_id),
       karat: p.karat, pct: Number(p.purity_pct), active: p.active, usedOn: p.used_on })),
     addableKinds: addableMetalKinds(enumKinds, metals.map(m => m.kind)),
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_metals", { need: "add" }).ok || can(actor, "set_metals", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_metals", { need: "add" }).ok,
+             edit: can(actor, "set_metals", { need: "edit" }).ok,
+             del: can(actor, "set_metals", { need: "delete" }).ok } });
 }
 
 // ————————————————————————— POST —————————————————————————
@@ -52,12 +55,14 @@ export async function GET() {
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
     const b = await req.json().catch(() => ({}));
 
     // ——— add a purity grade ———
     if (b.action === "add_purity") {
+      if (!can(actor, "set_metals", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · metals" }, { status: 403 });
       const metal = await one(`SELECT id, kind::text, valued_as_pct_of_gold FROM metal WHERE id=$1`,
         [b.metalId]);
       if (!metal) return bad(["Pick the metal this grade belongs to"]);
@@ -82,6 +87,8 @@ export async function POST(req) {
 
     // ——— edit a purity: VERSIONED, never in place (unless born today) ———
     if (b.action === "edit_purity") {
+      if (!can(actor, "set_metals", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · metals" }, { status: 403 });
       const cur = await one(
         `SELECT p.*, m.kind::text AS metal_kind, m.valued_as_pct_of_gold
            FROM purity p JOIN metal m ON m.id = p.metal_id WHERE p.id=$1`, [b.id]);
@@ -120,6 +127,8 @@ export async function POST(req) {
 
     // ——— lending toggle on a grade ———
     if (b.action === "toggle_purity") {
+      if (!can(actor, "set_metals", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · metals" }, { status: 403 });
       const cur = await one(`SELECT id, karat, active FROM purity WHERE id=$1`, [b.id]);
       if (!cur) return NextResponse.json({ ok: false, reason: "Grade not found" }, { status: 404 });
       await tx(async (cl) => {
@@ -133,6 +142,8 @@ export async function POST(req) {
 
     // ——— add a metal (only kinds the database enum already knows) ———
     if (b.action === "add_metal") {
+      if (!can(actor, "set_metals", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · metals" }, { status: 403 });
       const enumKinds = (await one(`SELECT enum_range(NULL::metal_kind)::text[] AS kinds`)).kinds;
       const existing = await q(`SELECT kind::text FROM metal`);
       const addable = addableMetalKinds(enumKinds, existing.map(x => x.kind));
@@ -152,6 +163,8 @@ export async function POST(req) {
 
     // ——— link / unlink a metal from the gold rate ———
     if (b.action === "toggle_pct_of_gold") {
+      if (!can(actor, "set_metals", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · metals" }, { status: 403 });
       const cur = await one(
         `SELECT id, kind::text, valued_as_pct_of_gold FROM metal WHERE id=$1`, [b.id]);
       if (!cur) return NextResponse.json({ ok: false, reason: "Metal not found" }, { status: 404 });
@@ -171,6 +184,8 @@ export async function POST(req) {
 
     // ——— enable / disable a metal ———
     if (b.action === "toggle_metal") {
+      if (!can(actor, "set_metals", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · metals" }, { status: 403 });
       const cur = await one(`SELECT id, kind::text, enabled FROM metal WHERE id=$1`, [b.id]);
       if (!cur) return NextResponse.json({ ok: false, reason: "Metal not found" }, { status: 404 });
       await tx(async (cl) => {

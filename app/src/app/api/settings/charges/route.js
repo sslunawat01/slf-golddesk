@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_charges", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -24,13 +24,16 @@ export async function GET() {
             (SELECT count(*) FROM loan_charge lc WHERE lc.charge_type_id = ct.id)::int AS used_on
        FROM charge_type ct ORDER BY ct.active DESC, ct.name`);
   return NextResponse.json({ ok: true, rows,
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_charges", { need: "add" }).ok || can(actor, "set_charges", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_charges", { need: "add" }).ok,
+             edit: can(actor, "set_charges", { need: "edit" }).ok,
+             del: can(actor, "set_charges", { need: "delete" }).ok } });
 }
 
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
 
     const b = await req.json().catch(() => ({}));
@@ -41,6 +44,8 @@ export async function POST(req) {
 
     // —————————— edit / deactivate an existing charge ——————————
     if (b.id) {
+      if (!can(actor, "set_charges", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — Edit permission needed" }, { status: 403 });
       const cur = await one(`SELECT * FROM charge_type WHERE id=$1`, [b.id]);
       if (!cur) return NextResponse.json({ ok: false, reason: "Charge not found" }, { status: 404 });
       const dup = await one(`SELECT id FROM charge_type WHERE lower(name)=lower($1) AND id<>$2`, [name, b.id]);
@@ -66,6 +71,8 @@ export async function POST(req) {
     }
 
     // —————————— create ——————————
+    if (!can(actor, "set_charges", { need: "add" }).ok)
+      return NextResponse.json({ ok: false, reason: "You may not create here — Add permission needed" }, { status: 403 });
     const dup = await one(`SELECT id FROM charge_type WHERE lower(name)=lower($1)`, [name]);
     if (dup) return NextResponse.json({ ok: false, reason: "A charge with that name already exists" }, { status: 409 });
 

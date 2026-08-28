@@ -30,8 +30,17 @@ export const FUNCTION_LABELS = {
   rate_maker: "Daily rate — maker",
   rate_checker: "Daily rate — checker",
   reports: "Reports",
-  settings: "Settings & admin",
+  settings: "Settings & admin (legacy umbrella)",
   edit_customer: "Edit customer details",
+  // D-B: each settings tab is its own permission
+  set_charges: "Settings · Charges",
+  set_branches: "Settings · Branches",
+  set_schemes: "Settings · Schemes",
+  set_roles: "Settings · Roles",
+  set_employees: "Settings · Employees",
+  set_metals: "Settings · Metals",
+  set_items: "Settings · Items",
+  set_banks: "Settings · Banks",
 };
 
 export const LEVELS = ["none", "view", "full"];
@@ -76,14 +85,30 @@ export function validRoleName(name, existing = [], selfId = null) {
  * @param {Record<string,string>} perms
  * @returns {{ok:boolean, problems:string[], rows:{fn:string,level:'view'|'full'}[]}}
  */
+/**
+ * D-B: a permission entry is either the legacy level string OR a bits object
+ * { view, add, edit, delete }. Both normalize to bit rows; the legacy level
+ * is preserved on the row for the still-NOT-NULL level column ('none' when
+ * only granular bits are set — the engine reads bits, level is vestigial).
+ */
 export function normalizePermissions(perms = {}) {
   const problems = [];
   const rows = [];
-  for (const [fn, level] of Object.entries(perms)) {
+  for (const [fn, v] of Object.entries(perms)) {
     if (!FUNCTIONS.includes(fn)) continue;            // silently drop unknowns
-    if (level === "none" || level == null || level === "") continue;
-    if (!LEVELS.includes(level)) { problems.push(`Unknown level "${level}" for ${fn}`); continue; }
-    rows.push({ fn, level });
+    if (v == null || v === "" || v === "none") continue;
+    let bits;
+    if (typeof v === "string") {
+      if (!LEVELS.includes(v)) { problems.push(`Unknown level "${v}" for ${fn}`); continue; }
+      bits = { view: true, add: v === "full", edit: v === "full", delete: v === "full" };
+    } else if (typeof v === "object") {
+      bits = { view: !!v.view, add: !!v.add, edit: !!v.edit, delete: !!v.delete };
+      // any power implies view — nobody can do what they cannot see
+      if (bits.add || bits.edit || bits.delete) bits.view = true;
+    } else { problems.push(`Unreadable permission for ${fn}`); continue; }
+    if (!bits.view) continue;                         // all-off = absent
+    const level = bits.add && bits.edit && bits.delete ? "full" : "view";
+    rows.push({ fn, level, ...bits });
   }
   return { ok: problems.length === 0, problems, rows };
 }
@@ -149,17 +174,17 @@ export function validLimit(l = {}) {
  * @param {boolean} editedWillHaveSettingsFull
  * @returns {{ok:boolean, reason?:string}}
  */
-export function leavesAnAdmin(holders = [], editedRoleId, editedWillHaveSettingsFull) {
+export function leavesAnAdmin(holders = [], editedRoleId, editedWillHaveRolesEdit) {
   let people = 0;
   for (const h of holders) {
     const grants = Number(h.roleId) === Number(editedRoleId)
-      ? editedWillHaveSettingsFull
-      : h.hasSettingsFull;
+      ? editedWillHaveRolesEdit
+      : h.hasRolesEdit;
     if (grants) people += Number(h.activeMembers) || 0;
   }
   if (people > 0) return { ok: true };
   return {
     ok: false,
-    reason: "This change would leave no active employee able to administer settings — grant Settings & admin to someone else first",
+    reason: "This change would leave no active employee able to edit roles — the key that opens every other door. Grant Settings · Roles (Edit) to someone else first",
   };
 }

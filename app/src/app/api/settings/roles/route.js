@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_roles", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -29,7 +29,8 @@ export async function GET() {
                 AND (er.effective_to IS NULL OR er.effective_to >= CURRENT_DATE))::int AS members
        FROM role r WHERE r.active ORDER BY r.id`);
 
-  const perms = await q(`SELECT role_id, fn, level FROM role_permission`);
+  const perms = await q(`SELECT role_id, fn, level, can_view, can_add, can_edit, can_delete
+                            FROM role_permission`);
   const limits = await q(
     `SELECT role_id, limit_paise, is_unlimited, reason FROM sanction_limit
       WHERE role_id IS NOT NULL AND employee_id IS NULL
@@ -44,7 +45,8 @@ export async function GET() {
     loginTo: r.login_to ? String(r.login_to).slice(0, 5) : null,
     loginDays: Number(r.login_days), graceMin: Number(r.grace_min),
     permissions: Object.fromEntries(
-      perms.filter(p => Number(p.role_id) === Number(r.id)).map(p => [p.fn, p.level])),
+      perms.filter(p => Number(p.role_id) === Number(r.id)).map(p => [p.fn,
+        { view: !!p.can_view, add: !!p.can_add, edit: !!p.can_edit, delete: !!p.can_delete }])),
     limit: (() => {
       const l = limits.find(x => Number(x.role_id) === Number(r.id));
       return l ? { limitPaise: Number(l.limit_paise), isUnlimited: l.is_unlimited, reason: l.reason }
@@ -55,7 +57,10 @@ export async function GET() {
   }));
 
   return NextResponse.json({ ok: true, rows, schemes,
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_roles", { need: "add" }).ok || can(actor, "set_roles", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_roles", { need: "add" }).ok,
+             edit: can(actor, "set_roles", { need: "edit" }).ok,
+             del: can(actor, "set_roles", { need: "delete" }).ok } });
 }
 
 // ————————————————————————— POST: create · rename · clone · update —————————————————————————
@@ -63,7 +68,7 @@ export async function GET() {
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
 
     const b = await req.json().catch(() => ({}));
@@ -71,6 +76,8 @@ export async function POST(req) {
 
     // ——— create: born with nothing, the deny-by-default way ———
     if (b.action === "create") {
+      if (!can(actor, "set_roles", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · roles" }, { status: 403 });
       const v = validRoleName(b.name, existing);
       if (!v.ok) return bad(v.problems);
       const row = await tx(async (cl) => {
@@ -90,6 +97,8 @@ export async function POST(req) {
 
     // ——— rename ———
     if (b.action === "rename") {
+      if (!can(actor, "set_roles", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · roles" }, { status: 403 });
       const v = validRoleName(b.name, existing, role.id);
       if (!v.ok) return bad(v.problems);
       await tx(async (cl) => {
@@ -104,6 +113,8 @@ export async function POST(req) {
 
     // ——— clone: permissions + window + schemes + limit, zero members ———
     if (b.action === "clone") {
+      if (!can(actor, "set_roles", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · roles" }, { status: 403 });
       const v = validRoleName(b.name || `Copy of ${role.name}`, existing);
       if (!v.ok) return bad(v.problems);
       const row = await tx(async (cl) => {
@@ -114,8 +125,9 @@ export async function POST(req) {
            actor.employeeId]);
         const newId = r.rows[0].id;
         await cl.query(
-          `INSERT INTO role_permission (role_id, fn, level)
-           SELECT $2, fn, level FROM role_permission WHERE role_id = $1`, [role.id, newId]);
+          `INSERT INTO role_permission (role_id, fn, level, can_view, can_add, can_edit, can_delete)
+           SELECT $2, fn, level, can_view, can_add, can_edit, can_delete
+             FROM role_permission WHERE role_id = $1`, [role.id, newId]);
         await cl.query(
           `INSERT INTO role_scheme (role_id, scheme_id)
            SELECT $2, scheme_id FROM role_scheme WHERE role_id = $1`, [role.id, newId]);
@@ -138,6 +150,8 @@ export async function POST(req) {
 
     // ——— update: permissions + login window + limit + schemes, atomically ———
     if (b.action === "update") {
+      if (!can(actor, "set_roles", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · roles" }, { status: 403 });
       const p = normalizePermissions(b.permissions || {});
       if (!p.ok) return bad(p.problems);
       const w = validLoginWindow(b.window || {});
@@ -150,14 +164,14 @@ export async function POST(req) {
       const holders = await q(
         `SELECT r.id AS "roleId",
                 EXISTS (SELECT 1 FROM role_permission rp
-                         WHERE rp.role_id = r.id AND rp.fn = 'settings' AND rp.level = 'full')
-                  AS "hasSettingsFull",
+                         WHERE rp.role_id = r.id AND rp.fn = 'set_roles' AND rp.can_edit)
+                  AS "hasRolesEdit",
                 (SELECT count(*) FROM employee_role er JOIN employee e ON e.id = er.employee_id
                   WHERE er.role_id = r.id AND e.status = 'active'
                     AND (er.effective_to IS NULL OR er.effective_to >= CURRENT_DATE))::int
                   AS "activeMembers"
            FROM role r WHERE r.active`);
-      const willHave = p.rows.some(r => r.fn === "settings" && r.level === "full");
+      const willHave = p.rows.some(r => r.fn === "set_roles" && r.edit);
       const adminOk = leavesAnAdmin(holders, role.id, willHave);
       if (!adminOk.ok)
         return NextResponse.json({ ok: false, reason: adminOk.reason }, { status: 409 });
@@ -166,8 +180,10 @@ export async function POST(req) {
         // permissions: replace wholesale — absence is 'none'
         await cl.query(`DELETE FROM role_permission WHERE role_id = $1`, [role.id]);
         for (const r of p.rows)
-          await cl.query(`INSERT INTO role_permission (role_id, fn, level) VALUES ($1,$2,$3)`,
-            [role.id, r.fn, r.level]);
+          await cl.query(
+            `INSERT INTO role_permission (role_id, fn, level, can_view, can_add, can_edit, can_delete)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [role.id, r.fn, r.level, r.view, r.add, r.edit, r.delete]);
 
         // login window + perm_version bump — live sessions pick it up in seconds
         await cl.query(

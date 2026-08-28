@@ -9,7 +9,7 @@ const mg = (grams) => Math.round(Number(grams || 0) * 1000);
 
 export default function WizardClient({ app, customer, items, purities, schemes, itemMaster, valuers,
                                        banks, slfAccounts, ceilingPaise, base24k, funding24k,
-                                       valuer2Threshold, canDisburse, metals = [], ratedMetalId = 1 }) {
+                                       valuer2Threshold, canDisburse, youApproved = false, metals = [], ratedMetalId = 1 }) {
   const [step, setStep] = useState(app.status === "approved" ? 3 : app.status === "pending_ho" ? 2 : 1);
   const [rows, setRows] = useState(items.length
     ? items.map(r => ({ ...r, metalId: String(purities.find(p => String(p.id) === String(r.purityId))?.metalId || ratedMetalId) }))
@@ -489,7 +489,14 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             disabled={busy || !schemeId || !pv.ok || !vr.ok || (present && !presencePhoto)}
             onClick={() => act("submit")}>
             {aboveCeiling ? "Send to Head Office →" : "Approve & continue →"}</button>}
-          {step === 3 && status === "approved" && canDisburse &&
+          {step === 3 && status === "approved" && youApproved && (
+            <div style={{ background: "#fdf1d8", border: "1px solid #e8c97a", borderRadius: 12,
+              padding: "12px 14px", marginTop: 14, fontSize: 13.5, color: "#a06407",
+              fontWeight: 700 }}>
+              🔒 You approved this loan — maker ≠ checker: a different person signs in and
+              pays it out. It is waiting on the Ready-to-disburse list on their home screen.
+            </div>)}
+          {step === 3 && status === "approved" && canDisburse && !youApproved &&
             <button className="btn green" disabled={busy || !plan.ok}
               onClick={() => act("disburse", { cashPaise: Math.round(Number(cash || 0) * 100),
                 bankLegs, slfAccountId: slfAcc ? Number(slfAcc) : null })}>

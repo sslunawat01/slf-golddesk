@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_employees", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -87,7 +87,10 @@ export async function GET() {
     roles: roles.map(r => ({ id: Number(r.id), name: r.name })),
     branches: branches.map(b => ({ id: Number(b.id), code: b.code, name: b.name, isHo: b.is_ho })),
     enums: en, selfId: actor.employeeId, designations, departments,
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_employees", { need: "add" }).ok || can(actor, "set_employees", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_employees", { need: "add" }).ok,
+             edit: can(actor, "set_employees", { need: "edit" }).ok,
+             del: can(actor, "set_employees", { need: "delete" }).ok } });
 }
 
 // ————————————————————————— POST —————————————————————————
@@ -95,7 +98,7 @@ export async function GET() {
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
 
     const b = await req.json().catch(() => ({}));
@@ -103,6 +106,8 @@ export async function POST(req) {
 
     // ——— create: the six-step wizard lands here as one atomic insert ———
     if (b.action === "create") {
+      if (!can(actor, "set_employees", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · employees" }, { status: 403 });
       const v1 = validIdentity(b);
       const v2 = validKyc(b);
       const v3 = validEmployment(b, en.types);
@@ -168,6 +173,8 @@ export async function POST(req) {
 
     // ——— update: identity, KYC and employment basics (never username, never password) ———
     if (b.action === "update") {
+      if (!can(actor, "set_employees", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · employees" }, { status: 403 });
       const v1 = validIdentity(b);
       const v2 = validKyc(b);
       const problems = [...v1.problems, ...v2.problems];
@@ -207,12 +214,14 @@ export async function POST(req) {
 
     // ——— membership: replace role and branch ticks ———
     if (b.action === "membership") {
+      if (!can(actor, "set_employees", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · employees" }, { status: 403 });
       const roleIds = (b.roleIds || []).map(Number).filter(Boolean);
       const branchIds = (b.branchIds || []).map(Number).filter(Boolean);
       if (roleIds.length === 0) return bad(["Tick at least one role"]);
-      if (branchIds.length === 0) return bad(["Tick at least one branch"]);
-      const primary = Number(b.primaryBranchId || 0) || branchIds[0];
-      if (!branchIds.includes(primary)) return bad(["The primary branch must be one of the ticked branches"]);
+      const primary = Number(b.primaryBranchId || 0) || branchIds[0] || null;
+      if (primary && !branchIds.includes(primary))
+        return bad(["The primary branch must be one of the ticked branches"]);
 
       // no-lockout: if this person is currently an admin and the new roles drop it
       const admins = await adminIds();
@@ -245,6 +254,8 @@ export async function POST(req) {
 
     // ——— reset password: HO types a new temporary one, force-change comes on ———
     if (b.action === "reset_password") {
+      if (!can(actor, "set_employees", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · employees" }, { status: 403 });
       const v = validAccess({ username: emp.username, password: b.password, confirm: b.confirm },
         { requirePassword: true });
       if (!v.ok) return bad(v.problems);
@@ -261,6 +272,8 @@ export async function POST(req) {
 
     // ——— suspend ———
     if (b.action === "suspend") {
+      if (!can(actor, "set_employees", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · employees" }, { status: 403 });
       const self = canSuspend(actor.employeeId, emp.id);
       if (!self.ok) return NextResponse.json({ ok: false, reason: self.reason }, { status: 409 });
       const v = validSuspension(b);
@@ -285,6 +298,8 @@ export async function POST(req) {
 
     // ——— reactivate ———
     if (b.action === "reactivate") {
+      if (!can(actor, "set_employees", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · employees" }, { status: 403 });
       await tx(async (cl) => {
         await cl.query(
           `UPDATE employee SET status='active'::emp_status, dol=NULL, updated_by=$2 WHERE id=$1`,

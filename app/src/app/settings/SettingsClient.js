@@ -11,15 +11,16 @@ import BanksTab from "./BanksTab.js";
 
 const TABS = ["Charges", "Branches", "Schemes", "Roles", "Employees", "Metals", "Items", "Banks"];
 
-export default function SettingsClient() {
-  const [tab, setTab] = useState("Charges");
+export default function SettingsClient({ visibleTabs = TABS }) {
+  const shown = TABS.filter(t => visibleTabs.includes(t));
+  const [tab, setTab] = useState(shown[0] || "Charges");
   return (
     <>
       <p style={{ color: "var(--mut)", fontSize: 14, margin: "0 0 14px", maxWidth: 640 }}>
         Structure is data, not code. What is created here is what the counter screens obey.
       </p>
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 18 }}>
-        {TABS.map(t => (
+        {shown.map(t => (
           <button key={t} onClick={() => setTab(t)}
             style={{ border: "1px solid " + (tab === t ? "var(--vault)" : "#cfc9ba"),
               background: tab === t ? "var(--vault)" : "#fff",

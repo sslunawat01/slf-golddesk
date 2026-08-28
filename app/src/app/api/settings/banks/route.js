@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_banks", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -19,7 +19,7 @@ export async function GET() {
   if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
 
   const rows = await q(
-    `SELECT a.id, a.entity_id, a.nickname, a.bank, a.ifsc, a.account_no,
+    `SELECT a.id, a.entity_id, a.nickname, a.bank, a.ifsc, a.account_no, a.scope_all,
             a.ledger_id, a.allow_disbursement, a.allow_collection, a.active,
             COALESCE((SELECT array_agg(ab.branch_id ORDER BY ab.branch_id)
                         FROM slf_bank_account_branch ab WHERE ab.account_id = a.id),
@@ -30,7 +30,7 @@ export async function GET() {
        FROM slf_bank_account a
       ORDER BY a.active DESC, a.nickname`);
   const branches = await q(
-    `SELECT id, code, name FROM branch WHERE active AND NOT is_ho ORDER BY code`);
+    `SELECT id, code, name, is_ho FROM branch WHERE active ORDER BY is_ho, code`);
   const entities = await q(
     `SELECT id, code, legal_name FROM entity WHERE active ORDER BY id`);
   const ledgers = await q(
@@ -39,28 +39,37 @@ export async function GET() {
   return NextResponse.json({ ok: true,
     rows: rows.map(r => ({ id: Number(r.id), entityId: Number(r.entity_id),
       branchIds: (r.branch_ids || []).map(Number),
-      branchLabel: (r.branch_ids || []).length
-        ? branches.filter(x => r.branch_ids.map(Number).includes(Number(x.id)))
-            .map(x => x.code).join(", ")
-        : "All branches",
+      scopeAll: r.scope_all,
+      branchLabel: r.scope_all
+        ? "All branches"
+        : ((r.branch_ids || []).length
+            ? branches.filter(x => r.branch_ids.map(Number).includes(Number(x.id)))
+                .map(x => x.code).join(", ")
+            : "No branch — parked"),
       nickname: r.nickname, bank: r.bank, ifsc: r.ifsc, accountNo: r.account_no,
       ledgerId: r.ledger_id ? Number(r.ledger_id) : null,
       allowDisbursement: r.allow_disbursement, allowCollection: r.allow_collection,
       active: r.active, usedOn: r.used_on })),
-    branches: branches.map(b => ({ id: Number(b.id), label: `${b.code} ${b.name}` })),
+    branches: branches.map(b => ({ id: Number(b.id),
+      label: `${b.code} ${b.name}${b.is_ho ? " (HO)" : ""}` })),
     entities: entities.map(e => ({ id: Number(e.id), label: e.legal_name })),
     ledgers: ledgers.map(l => ({ id: Number(l.id), label: `${l.code} · ${l.name}` })),
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_banks", { need: "add" }).ok || can(actor, "set_banks", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_banks", { need: "add" }).ok,
+             edit: can(actor, "set_banks", { need: "edit" }).ok,
+             del: can(actor, "set_banks", { need: "delete" }).ok } });
 }
 
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
     const b = await req.json().catch(() => ({}));
 
     if (b.action === "create") {
+      if (!can(actor, "set_banks", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · banks" }, { status: 403 });
       const v = validSlfBank(b);
       if (!v.ok) return bad(v.problems);
       const ent = b.entityId
@@ -70,17 +79,18 @@ export async function POST(req) {
       const row = await tx(async (cl) => {
         const r = await cl.query(
           `INSERT INTO slf_bank_account (entity_id, nickname, bank, ifsc,
-             account_no, account_no_masked, ledger_id, allow_disbursement, allow_collection)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-          [ent.id, v.nickname, v.bank, v.ifsc, v.accountNo, v.masked, v.ledgerId,
-           v.allowDisbursement, v.allowCollection]);
+             account_no, account_no_masked, scope_all, ledger_id,
+             allow_disbursement, allow_collection)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+          [ent.id, v.nickname, v.bank, v.ifsc, v.accountNo, v.masked, v.scopeAll,
+           v.ledgerId, v.allowDisbursement, v.allowCollection]);
         for (const bid of v.branchIds)
           await cl.query(`INSERT INTO slf_bank_account_branch (account_id, branch_id)
                           VALUES ($1,$2)`, [r.rows[0].id, bid]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "slf_bank_account", entityId: r.rows[0].id, action: "create",
           after: { nickname: v.nickname, ifsc: v.ifsc, masked: v.masked,
-                   branches: v.branchIds.length ? v.branchIds : "all",
+                   branches: v.scopeAll ? "all" : (v.branchIds.length ? v.branchIds : "none"),
                    disb: v.allowDisbursement, coll: v.allowCollection } });
         return r.rows[0];
       });
@@ -91,16 +101,19 @@ export async function POST(req) {
     if (!acct) return NextResponse.json({ ok: false, reason: "Account not found" }, { status: 404 });
 
     if (b.action === "edit") {
+      if (!can(actor, "set_banks", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · banks" }, { status: 403 });
       // blank account number keeps the stored one; typing replaces it
       const v = validSlfBank({ ...b, accountNo: b.accountNo || acct.account_no });
       if (!v.ok) return bad(v.problems);
       await tx(async (cl) => {
         await cl.query(
           `UPDATE slf_bank_account SET nickname=$2, bank=$3, ifsc=$4, account_no=$5,
-                  account_no_masked=$6, ledger_id=$7, allow_disbursement=$8, allow_collection=$9
+                  account_no_masked=$6, scope_all=$7, ledger_id=$8,
+                  allow_disbursement=$9, allow_collection=$10
             WHERE id=$1`,
-          [acct.id, v.nickname, v.bank, v.ifsc, v.accountNo, v.masked, v.ledgerId,
-           v.allowDisbursement, v.allowCollection]);
+          [acct.id, v.nickname, v.bank, v.ifsc, v.accountNo, v.masked, v.scopeAll,
+           v.ledgerId, v.allowDisbursement, v.allowCollection]);
         await cl.query(`DELETE FROM slf_bank_account_branch WHERE account_id=$1`, [acct.id]);
         for (const bid of v.branchIds)
           await cl.query(`INSERT INTO slf_bank_account_branch (account_id, branch_id)
@@ -116,6 +129,8 @@ export async function POST(req) {
     }
 
     if (b.action === "toggle") {
+      if (!can(actor, "set_banks", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · banks" }, { status: 403 });
       await tx(async (cl) => {
         await cl.query(`UPDATE slf_bank_account SET active = NOT active WHERE id=$1`, [acct.id]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,

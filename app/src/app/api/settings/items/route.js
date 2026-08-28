@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 function guard(actor, need) {
   if (!actor) return { status: 401, reason: "Signed out" };
-  if (!can(actor, "settings", { need }).ok)
+  if (!can(actor, "set_items", { need }).ok)
     return { status: 403, reason: "You may not manage settings" };
   return null;
 }
@@ -31,17 +31,22 @@ export async function GET() {
       metalId: Number(i.metal_id), metal: i.metal, description: i.description,
       active: i.active, usedOn: i.used_on })),
     metals: metals.map(m => ({ id: Number(m.id), kind: m.kind })),
-    canEdit: can(actor, "settings", { need: "full" }).ok });
+    canEdit: can(actor, "set_items", { need: "add" }).ok || can(actor, "set_items", { need: "edit" }).ok,
+    verbs: { add: can(actor, "set_items", { need: "add" }).ok,
+             edit: can(actor, "set_items", { need: "edit" }).ok,
+             del: can(actor, "set_items", { need: "delete" }).ok } });
 }
 
 export async function POST(req) {
   try {
     const actor = await currentActor();
-    const g = guard(actor, "full");
+    const g = guard(actor, "view");
     if (g) return NextResponse.json({ ok: false, reason: g.reason }, { status: g.status });
     const b = await req.json().catch(() => ({}));
 
     if (b.action === "create") {
+      if (!can(actor, "set_items", { need: "add" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not create here — ask for the Add permission on Settings · items" }, { status: 403 });
       const v = validItem(b);
       if (!v.ok) return bad(v.problems);
       const row = await tx(async (cl) => {
@@ -61,6 +66,8 @@ export async function POST(req) {
     if (!item) return NextResponse.json({ ok: false, reason: "Item not found" }, { status: 404 });
 
     if (b.action === "edit") {
+      if (!can(actor, "set_items", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · items" }, { status: 403 });
       const v = validItem(b);
       if (!v.ok) return bad(v.problems);
       await tx(async (cl) => {
@@ -76,6 +83,8 @@ export async function POST(req) {
     }
 
     if (b.action === "toggle") {
+      if (!can(actor, "set_items", { need: "edit" }).ok)
+        return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · items" }, { status: 403 });
       await tx(async (cl) => {
         await cl.query(`UPDATE item SET active = NOT active, updated_by=$2 WHERE id=$1`,
           [item.id, actor.employeeId]);

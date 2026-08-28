@@ -10,6 +10,7 @@ const BLANK = { bank: "", bankBranch: "", accountNo: "", ifsc: "", holderName: "
 export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
   const [form, setForm] = useState(null);   // BLANK + {id?} + orig for reset warning
   const [busy, setBusy] = useState(false);
+  const [confirmVerify, setConfirmVerify] = useState(null);
   const [chip, setChip] = useState(null);
 
   async function onIfsc(v) {
@@ -51,6 +52,23 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
           <div style={{ display: "flex", gap: 7, alignItems: "center", flexShrink: 0 }}>
             <span className={"chip " + (a.verifiedAt ? "ok" : "warn")}>
               {a.verifiedAt ? "verified" : "not verified — no payouts"}</span>
+            {!a.verifiedAt && mayEdit && (
+              confirmVerify === a.id
+                ? <button className="btn green" style={{ padding: "6px 11px", fontSize: 12 }}
+                    disabled={busy} onClick={async () => {
+                      setBusy(true);
+                      const r = await fetch(`/api/customers/${customerId}/banks`, {
+                        method: "POST", headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ action: "verify", id: a.id }),
+                      }).then(x => x.json()).catch(() => null);
+                      setBusy(false); setConfirmVerify(null);
+                      if (r?.ok) window.location.reload();
+                    }}>Proof seen — confirm verify</button>
+                : <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12 }}
+                    disabled={busy} onClick={() => setConfirmVerify(a.id)}
+                    title="Mark verified after seeing the passbook or a cancelled cheque — the penny-drop API will re-check later">
+                    Mark verified</button>
+            )}
             {mayEdit &&
               <button className="btn ghost" style={{ padding: "5px 11px", fontSize: 12 }}
                 onClick={() => setForm({ ...BLANK, id: a.id, bank: a.bank,

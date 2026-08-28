@@ -24,9 +24,14 @@ ok("renaming a role to its own name is allowed",
   validRoleName("Owner", [{ id: 1, name: "Owner" }], 1));
 
 console.log("\n§2 Permissions are deny-by-default — absence IS 'none'");
-eq("'none' rows are dropped, not stored",
+eq("'none' rows are dropped, not stored (levels convert to bits)",
   normalizePermissions({ sanction: "none", vault: "full" }).rows,
-  [{ fn: "vault", level: "full" }]);
+  [{ fn: "vault", level: "full", view: true, add: true, edit: true, delete: true }]);
+eq("granular bits pass through; any power implies view (D-B)",
+  normalizePermissions({ collect: { add: true } }).rows,
+  [{ fn: "collect", level: "view", view: true, add: true, edit: false, delete: false }]);
+eq("an all-off bits object is treated as absent",
+  normalizePermissions({ collect: { view: false } }).rows, []);
 eq("unknown functions are silently dropped",
   normalizePermissions({ hack_the_vault: "full" }).rows, []);
 no("an invented level is refused",
@@ -74,19 +79,19 @@ eq("an unlimited grant stores limit_paise 0 (the DB CHECK demands it)",
 
 console.log("\n§5 The business can never lock itself out of Settings");
 const holders = [
-  { roleId: 1, hasSettingsFull: true, activeMembers: 1 },   // Owner
-  { roleId: 3, hasSettingsFull: false, activeMembers: 2 },  // Counter Operator
+  { roleId: 1, hasRolesEdit: true, activeMembers: 1 },   // Owner
+  { roleId: 3, hasRolesEdit: false, activeMembers: 2 },  // Counter Operator
 ];
 ok("removing settings from a role nobody-admin holds is fine",
   leavesAnAdmin(holders, 3, false));
 no("removing settings from the ONLY admin role is refused",
-  leavesAnAdmin(holders, 1, false), "no active employee able to administer");
+  leavesAnAdmin(holders, 1, false), "no active employee able to edit roles");
 ok("removing settings from Owner is fine if another staffed role keeps it",
-  leavesAnAdmin([...holders, { roleId: 5, hasSettingsFull: true, activeMembers: 1 }], 1, false));
+  leavesAnAdmin([...holders, { roleId: 5, hasRolesEdit: true, activeMembers: 1 }], 1, false));
 no("a settings-full role with ZERO members does not count as an admin",
   leavesAnAdmin([
-    { roleId: 1, hasSettingsFull: true, activeMembers: 1 },
-    { roleId: 9, hasSettingsFull: true, activeMembers: 0 },
+    { roleId: 1, hasRolesEdit: true, activeMembers: 1 },
+    { roleId: 9, hasRolesEdit: true, activeMembers: 0 },
   ], 1, false), "no active employee");
 ok("keeping settings on the edited role passes trivially", leavesAnAdmin(holders, 1, true));
 

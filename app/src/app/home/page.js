@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { currentActor } from "@/lib/session.js";
 import Shell from "@/components/Shell.js";
-import { visibleDesks, sanctionAuthority } from "@/lib/policy.js";
+import { visibleDesks, sanctionAuthority, can } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +16,22 @@ export default async function Home() {
   const authority = sanctionAuthority(actor);
 
   const rate = await one(`SELECT base_paise, rate_date FROM rate_in_force(1, CURRENT_DATE)`);
+  const canDisburse = can(actor, "disburse", { need: "full" }).ok;
+  // approved, not yet disbursed, at the acting branch — with who approved it
+  const readyQ = await q(
+    `SELECT la.id, la.app_no, la.requested_paise, c.full_name AS cust, s.code AS scheme,
+            h.by_employee AS approver_id, e.full_name AS approver, h.at AS approved_at
+       FROM loan_application la
+       JOIN customer c ON c.id = la.customer_id
+       JOIN scheme_version sv ON sv.id = la.scheme_version_id
+       JOIN scheme s ON s.id = sv.scheme_id
+       LEFT JOIN loan l ON l.application_id = la.id
+       JOIN LATERAL (SELECT by_employee, at FROM loan_state_history
+                      WHERE application_id = la.id AND to_state = 'approved'
+                      ORDER BY at DESC LIMIT 1) h ON TRUE
+       JOIN employee e ON e.id = h.by_employee
+      WHERE la.branch_id = $1 AND la.status = 'approved' AND l.id IS NULL
+      ORDER BY h.at`, [actor.actingBranchId]);
   const counts = await one(
     `SELECT (SELECT count(*) FROM loan WHERE status='active' AND branch_id=$1)::int AS active_loans,
             (SELECT count(*) FROM release r JOIN loan l ON l.id=r.loan_id
@@ -57,9 +73,52 @@ export default async function Home() {
             🔍 Customer at counter? Type mobile, name, or loan no…
           </div>
         </a>
+
         <p style={{ color: "var(--mut)", fontSize: 13.5, margin: "8px 0 20px" }}>
           Search is the front door — new pledge, payment, renewal, enquiry, everything.
         </p>
+
+      {readyQ.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: "5px solid var(--brass)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline",
+            gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+              textTransform: "uppercase", color: "var(--mut)" }}>
+              Ready to disburse — {readyQ.length} loan{readyQ.length === 1 ? "" : "s"} approved</div>
+            <div style={{ fontSize: 11.5, color: "var(--mut)" }}>
+              maker ≠ checker: the approver never disburses</div>
+          </div>
+          {readyQ.map((r, i) => {
+            const mine = Number(r.approver_id) === Number(actor.employeeId);
+            return (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 12,
+                flexWrap: "wrap", padding: "11px 2px",
+                borderTop: i ? "1px solid var(--line)" : "1px solid transparent",
+                marginTop: i ? 0 : 6 }}>
+                <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                  <b>{r.cust}</b>
+                  <span className="mono" style={{ color: "var(--mut)", fontSize: 12,
+                    marginLeft: 8 }}>{r.app_no}</span>
+                  <div style={{ color: "var(--mut)", fontSize: 12.5, marginTop: 2 }}>
+                    {r.scheme} · approved by {mine ? "you" : r.approver}
+                    {" · "}{String(r.approved_at).slice(0, 10)}</div>
+                </div>
+                <b className="mono" style={{ fontSize: 15 }}>
+                  ₹{Math.round(Number(r.requested_paise) / 100).toLocaleString("en-IN")}</b>
+                {canDisburse && !mine ? (
+                  <a href={`/pledge/${r.id}`} className="btn green"
+                    style={{ fontSize: 13, padding: "9px 16px", textDecoration: "none" }}>
+                    Disburse →</a>
+                ) : (
+                  <span className="chip mut" title={mine
+                    ? "You approved this loan — a different person must pay it out"
+                    : "You do not hold the disburse permission"}
+                    style={{ whiteSpace: "nowrap" }}>
+                    {mine ? "🔒 you approved — another person disburses" : "view only"}</span>
+                )}
+              </div>);
+          })}
+        </div>)}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 14 }}>
           <div className="card">

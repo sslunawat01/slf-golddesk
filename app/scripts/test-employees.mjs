@@ -65,7 +65,11 @@ const good = { designation: "Counter Operator", doj: "2026-08-01",
 ok("a complete employment step passes", validEmployment(good, ["permanent", "contract"]));
 no("zero roles is refused — sign in but do nothing",
   validEmployment({ ...good, roleIds: [] }), "at least one role");
-no("zero branches is refused", validEmployment({ ...good, branchIds: [] }), "at least one branch");
+ok("zero branches is welcome — an unposted employee exists but signs in nowhere (owner 28 Aug 2026)",
+  validEmployment({ ...good, branchIds: [], primaryBranchId: 0 }));
+ok("an unposted employee has no primary branch",
+  validEmployment({ ...good, branchIds: [], primaryBranchId: 0 }).primaryBranchId === null
+    ? { ok: true } : { ok: false, problems: ["primary should be null"] });
 no("a primary branch outside the ticked branches is refused",
   validEmployment({ ...good, primaryBranchId: 7 }), "must be one of the ticked");
 no("a joining date three months ahead is refused",

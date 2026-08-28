@@ -29,7 +29,8 @@ export async function loadActor(employeeId, actingBranchId) {
         AND (er.effective_to IS NULL OR er.effective_to >= CURRENT_DATE)`, [employeeId]);
 
   const perms = await q(
-    `SELECT rp.fn, rp.level FROM role_permission rp
+    `SELECT rp.fn, rp.level, rp.can_view, rp.can_add, rp.can_edit, rp.can_delete
+       FROM role_permission rp
       WHERE rp.role_id = ANY($1::bigint[])`, [roles.map(r => r.roleId)]);
 
   const branches = await q(

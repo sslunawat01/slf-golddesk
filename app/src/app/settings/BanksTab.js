@@ -6,8 +6,8 @@ const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
 const I = { width: "100%", border: "1px solid #cfc9ba", borderRadius: 10, padding: "0 11px",
   height: 40, fontSize: 13.5, background: "#fff", boxSizing: "border-box" };
-const BLANK = { nickname: "", bank: "", ifsc: "", accountNo: "", branchIds: [], ledgerId: 0,
-  allowDisbursement: true, allowCollection: true };
+const BLANK = { nickname: "", bank: "", ifsc: "", accountNo: "", branchIds: [], scopeAll: true,
+  ledgerId: 0, allowDisbursement: true, allowCollection: true };
 
 export default function BanksTab() {
   const [data, setData] = useState(null);
@@ -96,7 +96,7 @@ export default function BanksTab() {
                       <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12 }}
                         onClick={() => setForm({ ...BLANK, id: a.id, nickname: a.nickname,
                           bank: a.bank, ifsc: a.ifsc, accountNo: a.accountNo,
-                          branchIds: [...(a.branchIds || [])],
+                          branchIds: [...(a.branchIds || [])], scopeAll: a.scopeAll !== false,
                           ledgerId: a.ledgerId || 0, allowDisbursement: a.allowDisbursement,
                           allowCollection: a.allowCollection })}>Edit</button>
                     </>}
@@ -140,21 +140,27 @@ export default function BanksTab() {
                 </select></div>}
           </div>
           <div style={{ marginTop: 12 }}>
-            <span style={F}>Available at — tick branches, or none for every branch</span>
+            <span style={F}>Available at</span>
             <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-              <button style={tick(form.branchIds.length === 0)}
-                onClick={() => setForm({ ...form, branchIds: [] })}>
-                {form.branchIds.length === 0 ? "✓" : ""} All branches</button>
+              <button style={tick(form.scopeAll)}
+                onClick={() => setForm({ ...form, scopeAll: !form.scopeAll })}>
+                {form.scopeAll ? "✓" : ""} All branches</button>
               {data.branches.map(b => {
-                const on = form.branchIds.includes(b.id);
+                const on = !form.scopeAll && form.branchIds.includes(b.id);
                 return (
-                  <button key={b.id} style={tick(on)}
+                  <button key={b.id} style={{ ...tick(on), opacity: form.scopeAll ? .4 : 1 }}
+                    disabled={form.scopeAll}
                     onClick={() => setForm({ ...form,
                       branchIds: on ? form.branchIds.filter(x => x !== b.id)
                                     : [...form.branchIds, b.id] })}>
                     {on ? "✓" : ""} {b.label}</button>);
               })}
             </div>
+            {!form.scopeAll && form.branchIds.length === 0 &&
+              <div className="hint" style={{ marginTop: 6 }}>
+                No branch ticked — the account is parked: it will not appear in any
+                disbursement or collection picker until a branch is ticked or
+                All branches is switched back on.</div>}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <button style={tick(form.allowDisbursement)}

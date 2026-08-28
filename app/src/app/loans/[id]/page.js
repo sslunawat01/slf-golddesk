@@ -54,7 +54,11 @@ export default async function LoanProfile({ params }) {
       q(`SELECT f.thumb_s3_key, f.s3_key FROM application_photo ap
            JOIN file_object f ON f.id = ap.file_id
           WHERE ap.application_id = $1 ORDER BY ap.ord LIMIT 4`, [l.application_id]),
-      one(`SELECT c.full_name, c.cust_no FROM loan_application la
+      one(`SELECT c.full_name, c.cust_no,
+                  COALESCE(la.coborrower_photo_id,
+                    (SELECT cp.file_id FROM customer_photo cp
+                      WHERE cp.customer_id = c.id ORDER BY cp.id DESC LIMIT 1)) AS photo_id
+             FROM loan_application la
              JOIN customer c ON c.id = la.coborrower_customer_id
             WHERE la.id = $1 AND la.coborrower_customer_id IS NOT NULL`, [l.application_id]),
       one(`SELECT p.packet_no, p.status::text AS packet_status, sf.label AS safe_label,
@@ -79,6 +83,17 @@ export default async function LoanProfile({ params }) {
   const P = closing._paise;
   const principalOut = P.settlement - P.interestDue - P.penalDue - P.chargesDue;
   const totalNetMg = items.reduce((s, it) => s + Number(it.net_mg), 0);
+
+  // co-borrower photo — the pledge-day snapshot, else their customer photo
+  let cobPhoto = null;
+  if (cob?.photo_id) {
+    const f = await one(`SELECT s3_key, thumb_s3_key FROM file_object WHERE id=$1`, [cob.photo_id]);
+    if (f) cobPhoto = {
+      thumb: await viewUrl(f.thumb_s3_key || f.s3_key).catch(() => null),
+      full: await viewUrl(f.s3_key).catch(() => null),
+    };
+    if (cobPhoto && !cobPhoto.thumb) cobPhoto = null;
+  }
 
   // signed photo URLs — thumb for display, full for click-to-zoom
   const pics = (await Promise.all(photos.map(async (p) => ({
@@ -270,7 +285,14 @@ export default async function LoanProfile({ params }) {
             <H>Loan facts</H>
             {[
               ["Borrower", `${l.cust_name} · ${l.cust_no}`],
-              cob ? ["Co-borrower", `${cob.full_name} · ${cob.cust_no}`] : null,
+              cob ? ["Co-borrower", <span key="cob" style={{ display: "inline-flex",
+                  alignItems: "center", gap: 8 }}>
+                  {cobPhoto && <a href={cobPhoto.full || cobPhoto.thumb} target="_blank"
+                    rel="noreferrer" title="Open full size">
+                    <img src={cobPhoto.thumb} alt="" style={{ width: 34, height: 34,
+                      objectFit: "cover", borderRadius: 8,
+                      border: "1px solid var(--line)", display: "block" }} /></a>}
+                  {cob.full_name} · {cob.cust_no}</span>] : null,
               custody ? ["Packet", `${custody.packet_no} · ${custody.packet_status.replace(/_/g, " ")}` +
                 (custody.safe_label && custody.direction === "in" ? ` · ${custody.safe_label}` : "")] : null,
               ["Scheme", `${l.scheme_name} (${l.scheme_code}) v${sv.version_no ?? ""}`],

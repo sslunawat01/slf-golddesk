@@ -17,9 +17,15 @@
 export const FUNCTIONS = [
   "appraise", "sanction", "vault", "disburse", "collect", "renew", "release",
   "dayend", "cash_transfer", "rate_maker", "rate_checker", "reports", "settings", "edit_customer",
+  // D-B (28 Aug 2026): Settings is eight separately-permissioned tabs.
+  "set_charges", "set_branches", "set_schemes", "set_roles",
+  "set_employees", "set_metals", "set_items", "set_banks",
 ];
+export const SETTINGS_FNS = ["set_charges", "set_branches", "set_schemes", "set_roles",
+  "set_employees", "set_metals", "set_items", "set_banks"];
 
 const RANK = { none: 0, view: 1, full: 2 };
+const NO_BITS = Object.freeze({ view: false, add: false, edit: false, delete: false });
 
 /**
  * @typedef {Object} Actor
@@ -35,13 +41,23 @@ const RANK = { none: 0, view: 1, full: 2 };
  * @property {number|null} roleLimitPaise
  */
 
-/** Merge role_permission rows into one map, highest level winning. */
+/**
+ * D-B: permissions are four bits per function — view / add / edit / delete.
+ * Rows may carry the bit columns (post-migration-021) or only the legacy
+ * level, which converts (full → all four, view → view). Across several
+ * roles, any role granting a bit grants it (OR-merge).
+ */
 export function mergePermissions(rows) {
   const out = {};
-  for (const fn of FUNCTIONS) out[fn] = "none";
+  for (const fn of FUNCTIONS) out[fn] = { ...NO_BITS };
   for (const r of rows || []) {
     if (!FUNCTIONS.includes(r.fn)) continue;
-    if (RANK[r.level] > RANK[out[r.fn]]) out[r.fn] = r.level;
+    const bits = (r.can_view !== undefined && r.can_view !== null)
+      ? { view: !!r.can_view, add: !!r.can_add, edit: !!r.can_edit, delete: !!r.can_delete }
+      : { view: r.level === "view" || r.level === "full",
+          add: r.level === "full", edit: r.level === "full", delete: r.level === "full" };
+    const o = out[r.fn];
+    o.view ||= bits.view; o.add ||= bits.add; o.edit ||= bits.edit; o.delete ||= bits.delete;
   }
   return out;
 }
@@ -58,8 +74,17 @@ export function can(actor, fn, ctx = {}) {
   if (!actor) return { ok: false, reason: "not signed in" };
   if (!FUNCTIONS.includes(fn)) return { ok: false, reason: `unknown function ${fn}` };
 
-  const have = actor.permissions?.[fn] || "none";
-  if (RANK[have] < RANK[need]) return { ok: false, reason: `no ${need} permission for ${fn}` };
+  const have = actor.permissions?.[fn] || NO_BITS;
+  // 'view' is satisfied by holding ANY bit — nobody can do what they cannot see.
+  // Legacy 'full' at desk call sites means "may perform this desk's actions",
+  // which in the four-bit world is the Add bit (desk actions create records).
+  const pass =
+    need === "view"   ? (have.view || have.add || have.edit || have.delete) :
+    need === "add"    ? have.add :
+    need === "edit"   ? have.edit :
+    need === "delete" ? have.delete :
+    need === "full"   ? have.add : false;
+  if (!pass) return { ok: false, reason: `no ${need} permission for ${fn}` };
 
   const branchId = ctx.branchId ?? actor.actingBranchId;
   if (branchId && !(actor.branchIds || []).includes(branchId))
@@ -168,9 +193,9 @@ export function visibleDesks(actor) {
     cashTransfer: p("cash_transfer"),
     vault:        p("vault"),
     reports:      p("reports"),
-    hqDashboard:  p("reports", "full") && p("settings", "view"),
-    approvals:    p("sanction", "full") && p("settings", "view"),
+    hqDashboard:  p("reports", "full") && SETTINGS_FNS.some(f => p(f)),
+    approvals:    p("sanction", "full") && SETTINGS_FNS.some(f => p(f)),
     dailyRate:    p("rate_maker") || p("rate_checker"),
-    settings:     p("settings", "full"),
+    settings:     SETTINGS_FNS.some(f => p(f)),
   };
 }

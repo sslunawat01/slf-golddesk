@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { FUNCTION_LABELS, DAY_PRESETS, presetForDays } from "@/lib/roles.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
@@ -76,8 +76,34 @@ export default function RolesTab() {
     }
   }
 
-  const setPerm = (fn, level) =>
-    setDraft({ ...draft, permissions: { ...draft.permissions, [fn]: level } });
+  const VERBS = ["view", "add", "edit", "delete"];
+  const bitsOf = (fn) => {
+    const v = draft.permissions[fn];
+    if (!v || v === "none") return { view: false, add: false, edit: false, delete: false };
+    if (typeof v === "string")   // legacy level on an unsaved old draft
+      return { view: true, add: v === "full", edit: v === "full", delete: v === "full" };
+    return { view: !!v.view, add: !!v.add, edit: !!v.edit, delete: !!v.delete };
+  };
+  const setBit = (fn, verb) => {
+    const cur = bitsOf(fn);
+    const next = { ...cur, [verb]: !cur[verb] };
+    if (verb !== "view" && next[verb]) next.view = true;         // power implies view
+    if (verb === "view" && !next.view) next.add = next.edit = next.delete = false;
+    setDraft({ ...draft, permissions: { ...draft.permissions, [fn]: next } });
+  };
+  const setColumn = (verb, on) => {
+    const perms = { ...draft.permissions };
+    for (const fn of Object.keys(FUNCTION_LABELS)) {
+      if (fn === "settings") continue;                            // legacy umbrella stays untouched
+      const cur = (typeof perms[fn] === "object" && perms[fn]) ||
+        { view: false, add: false, edit: false, delete: false };
+      const next = { ...cur, [verb]: on };
+      if (on && verb !== "view") next.view = true;
+      if (!on && verb === "view") { next.add = next.edit = next.delete = false; }
+      perms[fn] = next;
+    }
+    setDraft({ ...draft, permissions: perms });
+  };
   const setWin = (k, v) => setDraft({ ...draft, window: { ...draft.window, [k]: v } });
   const setLim = (k, v) => setDraft({ ...draft, limit: { ...draft.limit, [k]: v } });
   const toggleScheme = (id) => setDraft({ ...draft,
@@ -152,36 +178,63 @@ export default function RolesTab() {
           Renaming never changes what the role may do — rules attach to the operation, not the title.
         </div>
 
-        {/* ——— permission grid ——— */}
-        <div style={{ ...F, marginTop: 18 }}>Operations — None / View / Full</div>
+        {/* ——— permission grid: View / Add / Edit / Delete (D-B) ——— */}
+        <div style={{ ...F, marginTop: 18 }}>Permissions — tick what this role may do</div>
         <div style={{ background: "#faf9f4", border: "1px solid #f0ede4", borderRadius: 12,
-          padding: "4px 14px" }}>
-          {Object.entries(FUNCTION_LABELS).map(([fn, label]) => {
-            const cur = draft.permissions[fn] || "none";
-            return (
-              <div key={fn} style={{ display: "flex", justifyContent: "space-between",
-                alignItems: "center", gap: 10, padding: "8px 0",
-                borderBottom: "1px solid #f0ede4", flexWrap: "wrap" }}>
-                <span style={{ fontWeight: 700, fontSize: 13 }}>{label}</span>
-                <div style={{ display: "flex", gap: 5 }}>
-                  {["none", "view", "full"].map(lv => (
-                    <button key={lv} disabled={!canEdit}
-                      onClick={() => setPerm(fn, lv)}
-                      style={{ border: "1px solid " + (cur === lv
-                          ? (lv === "full" ? "var(--vault)" : lv === "view" ? "var(--brass)" : "#8b8b80")
-                          : "#cfc9ba"),
-                        background: cur === lv
-                          ? (lv === "full" ? "var(--vault)" : lv === "view" ? "var(--brass)" : "#8b8b80")
-                          : "#fff",
-                        color: cur === lv ? "#fff" : "var(--mut)",
-                        borderRadius: 9, padding: "6px 12px", fontWeight: 800, fontSize: 12,
-                        cursor: canEdit ? "pointer" : "default" }}>
-                      {LEVEL_LABELS[lv]}</button>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
+          padding: "4px 14px 10px", overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 520 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "10px 4px", fontSize: 10.5,
+                  letterSpacing: ".07em", textTransform: "uppercase", color: "var(--mut)" }}>
+                  Operation</th>
+                {VERBS.map(v => (
+                  <th key={v} style={{ padding: "10px 4px", fontSize: 10.5, letterSpacing: ".07em",
+                    textTransform: "uppercase", color: "var(--mut)", width: 86 }}>
+                    {v === "delete" ? "Delete" : v[0].toUpperCase() + v.slice(1)}
+                    {canEdit && <div style={{ marginTop: 3, fontWeight: 600, fontSize: 10 }}>
+                      <button onClick={() => setColumn(v, true)} style={{ border: 0,
+                        background: "none", color: "var(--brass)", cursor: "pointer",
+                        fontSize: 10, fontWeight: 800, padding: 1 }}>all</button>
+                      {" · "}
+                      <button onClick={() => setColumn(v, false)} style={{ border: 0,
+                        background: "none", color: "var(--mut)", cursor: "pointer",
+                        fontSize: 10, fontWeight: 800, padding: 1 }}>none</button>
+                    </div>}
+                  </th>))}
+              </tr>
+            </thead>
+            <tbody>
+              {[["Desk operations", Object.keys(FUNCTION_LABELS).filter(f =>
+                  !f.startsWith("set_") && f !== "settings")],
+                ["Settings — every tab separately", Object.keys(FUNCTION_LABELS).filter(f =>
+                  f.startsWith("set_"))]].map(([groupLabel, fns]) => (
+                <Fragment key={groupLabel}>
+                  <tr><td colSpan={5} style={{ padding: "12px 4px 5px", fontSize: 10.5,
+                    fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase",
+                    color: "#a89968", borderBottom: "1px solid #eee9dd" }}>{groupLabel}</td></tr>
+                  {fns.map(fn => {
+                    const bit = bitsOf(fn);
+                    return (
+                      <tr key={fn} style={{ borderBottom: "1px solid #f0ede4" }}>
+                        <td style={{ padding: "8px 4px", fontWeight: 700, fontSize: 13 }}>
+                          {FUNCTION_LABELS[fn].replace("Settings · ", "")}</td>
+                        {VERBS.map(v => (
+                          <td key={v} style={{ textAlign: "center", padding: "6px 4px" }}>
+                            <input type="checkbox" checked={bit[v]} disabled={!canEdit}
+                              onChange={() => setBit(fn, v)}
+                              style={{ width: 17, height: 17, accentColor: "var(--vault)",
+                                cursor: canEdit ? "pointer" : "default" }} />
+                          </td>))}
+                      </tr>);
+                  })}
+                </Fragment>))}
+            </tbody>
+          </table>
+          <div className="hint" style={{ marginTop: 6 }}>
+            View = see the screens · Add = perform the desk&rsquo;s actions / create records ·
+            Edit = change existing · Delete = remove. Ticking any power ticks View with it.
+          </div>
         </div>
 
         {/* ——— sanction limit ——— */}

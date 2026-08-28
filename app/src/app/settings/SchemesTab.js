@@ -219,10 +219,7 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy, onEdit 
   const [confirmDel, setConfirmDel] = useState(false);
   async function publish() {
     const ids = alloc ?? [];
-    if (!ids.length) {
-      setPerr("Tick at least one branch — a scheme is never published everywhere by default");
-      return;
-    }
+    // zero ticks publishes a live-but-parked version (offered nowhere) — allowed
     const r = await post({ action: "publish", versionId: v.id, branchIds: ids });
     if (r) { setAlloc(null); setPerr(null); reload(); }
   }
@@ -300,7 +297,7 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy, onEdit 
                   disabled={busy} onClick={publish}>
                   {busy ? "Publishing…" : "Publish to ticked branches"}</button>
               : <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
-                  disabled={busy || !alloc.length} onClick={saveAlloc}>Save allocation</button>}
+                  disabled={busy} onClick={saveAlloc}>Save allocation</button>}
           </div>
           {perr && <div style={{ marginTop: 8, textAlign: "right" }}>
             <span className="chip bad">{perr}</span></div>}
@@ -368,15 +365,46 @@ function Wizard({ data, wiz, setWiz, post, busy, err, setErr, reload }) {
   }
 
   const slabRows = f.slabs || [];
+  const setTenure = (v) => {
+    const tenure = Number(v);
+    let s2 = slabRows;
+    if (tenure > 0) {
+      // clamp every toDay to the new tenure, re-chain, drop dead rows
+      s2 = slabRows.map(x => ({ ...x,
+        toDay: x.toDay !== "" && Number(x.toDay) > tenure ? String(tenure) : x.toDay }));
+      for (let j = 1; j < s2.length; j++) {
+        const prevEnd = Number(s2[j - 1].toDay);
+        if (!prevEnd) break;
+        if (prevEnd >= tenure) { s2 = s2.slice(0, j); break; }
+        s2[j] = { ...s2[j], fromDay: prevEnd + 1,
+          toDay: s2[j].toDay !== "" && Number(s2[j].toDay) <= prevEnd ? "" : s2[j].toDay };
+      }
+      const last = s2[s2.length - 1];
+      if (Number(last?.toDay) > 0 && Number(last.toDay) < tenure)
+        s2 = [...s2, { fromDay: Number(last.toDay) + 1, toDay: "", ratePct: "" }];
+    }
+    setWiz({ ...wiz, form: { ...f, tenureDays: v, slabs: s2 } });
+  };
   const setSlab = (i, k, v) => {
-    const s = slabRows.map((x, j) => j === i ? { ...x, [k]: v } : x);
-    // auto-chain: next fromDay follows this toDay
-    if (k === "toDay" && s[i + 1]) s[i + 1] = { ...s[i + 1], fromDay: Number(v) + 1 || "" };
-    // №10: last row ends before tenure → a fresh row appears by itself
     const tenure = Number(f.tenureDays);
-    if (k === "toDay" && i === s.length - 1 && tenure > 0) {
-      const end = Number(v);
-      if (end > 0 && end < tenure) s.push({ fromDay: end + 1, toDay: "", ratePct: "" });
+    let s = slabRows.map((x, j) => j === i ? { ...x, [k]: v } : x);
+    if (k === "toDay" && v !== "") {
+      // №E10-1: a slab can never run past the tenure — clamped as you type
+      if (tenure > 0 && Number(v) > tenure) s[i] = { ...s[i], toDay: String(tenure) };
+      // №E10-1: overlaps are impossible — every later row re-chains off this one,
+      // and rows squeezed past the tenure fall away
+      for (let j = i + 1; j < s.length; j++) {
+        const prevEnd = Number(s[j - 1].toDay);
+        if (!prevEnd) break;
+        if (tenure > 0 && prevEnd >= tenure) { s = s.slice(0, j); break; }
+        s[j] = { ...s[j], fromDay: prevEnd + 1,
+          toDay: s[j].toDay !== "" && Number(s[j].toDay) <= prevEnd ? "" : s[j].toDay };
+      }
+      // №10: last row ends before tenure → a fresh row appears by itself
+      const last = s[s.length - 1];
+      const lastEnd = Number(last.toDay);
+      if (tenure > 0 && lastEnd > 0 && lastEnd < tenure)
+        s.push({ fromDay: lastEnd + 1, toDay: "", ratePct: "" });
     }
     setV("slabs", s);
   };
@@ -413,8 +441,6 @@ function Wizard({ data, wiz, setWiz, post, busy, err, setErr, reload }) {
           <div><label style={F}>Description *</label>
             <input style={I} value={f.name} readOnly={!isNew} onChange={set("name")}
               placeholder="one line staff will read" /></div>
-          <div><label style={F}>Tenure in days *</label>
-            <input style={I} value={f.tenureDays} onChange={set("tenureDays")} inputMode="numeric" /></div>
           <div><label style={F}>Days in a year *</label>
             <input style={I} value={f.daysInYear} onChange={set("daysInYear")} inputMode="numeric" />
             <div className="hint">365 or 366 — the divisor in every interest calculation</div></div>
@@ -441,6 +467,11 @@ function Wizard({ data, wiz, setWiz, post, busy, err, setErr, reload }) {
             <div><label style={F}>Minimum interest days *</label>
               <input style={I} value={f.minInterestDays} onChange={set("minInterestDays")} inputMode="numeric" />
               <div className="hint">charged on every loan even if it closes earlier</div></div>
+            <div><label style={F}>Tenure days * — slabs must cover it</label>
+              <input style={I} value={f.tenureDays}
+                onChange={e => setTenure(e.target.value.replace(/\D/g, ""))}
+                inputMode="numeric" placeholder="e.g. 365" />
+              <div className="hint">a slab can never run past the tenure — entries clamp to it</div></div>
           </div>
 
           {f.calcMethod === "slab" && (

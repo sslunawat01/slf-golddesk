@@ -41,7 +41,7 @@ export default async function PledgePage({ params }) {
          FROM customer_bank_account WHERE customer_id=$1 ORDER BY id`, [app.customer_id]),
     q(`SELECT a.id, a.nickname FROM slf_bank_account a
         WHERE a.active AND a.allow_disbursement
-          AND (NOT EXISTS (SELECT 1 FROM slf_bank_account_branch ab WHERE ab.account_id = a.id)
+          AND (a.scope_all
                OR EXISTS (SELECT 1 FROM slf_bank_account_branch ab
                            WHERE ab.account_id = a.id AND ab.branch_id = $1))
         ORDER BY a.nickname`, [actor.actingBranchId]),
@@ -50,6 +50,10 @@ export default async function PledgePage({ params }) {
   ]);
 
   const authority = sanctionAuthority(actor);
+  const youApproved = await one(
+    `SELECT 1 FROM loan_state_history
+      WHERE application_id = $1 AND to_state = 'approved' AND by_employee = $2 LIMIT 1`,
+    [id, actor.employeeId]);
 
   return (
     <Shell title={`New pledge · ${app.customer_name}`}>
@@ -77,6 +81,7 @@ export default async function PledgePage({ params }) {
         base24k={Number(app.base_paise_snapshot)}
         funding24k={Number(app.funding_paise_snapshot ?? app.base_paise_snapshot)}
         valuer2Threshold={Number(thr?.value ?? 2000000)}
-        canDisburse={can(actor, "disburse", { need: "full" }).ok} />
+        canDisburse={can(actor, "disburse", { need: "full" }).ok}
+        youApproved={!!youApproved} />
     </Shell>);
 }
