@@ -1,9 +1,9 @@
 /**
  * SLF GoldDesk — COMPANY BANK ACCOUNT MASTER RULES (№8)
  * slf_bank_account (verified \d 17 Aug 2026): nickname UNIQUE, bank, ifsc,
- * account_no_masked, branch_id NULLABLE, allow_disbursement, allow_collection,
- * ledger_id, active. THE FULL ACCOUNT NUMBER IS NEVER STORED — masked only,
- * by schema design. branch_id NULL means every branch may use it.
+ * account_no (FULL — owner decision 27 Aug 2026, mig 017), account_no_masked,
+ * allow_disbursement, allow_collection, ledger_id, active.
+ * Branch scope lives in slf_bank_account_branch — NO rows = every branch.
  */
 
 /** '00311234567890' → '··········7890' (always keeps exactly the last 4). */
@@ -23,12 +23,17 @@ export function validSlfBank(b = {}) {
   if (bank.length < 2) problems.push("Name the bank");
   const ifsc = String(b.ifsc || "").trim().toUpperCase();
   if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(ifsc)) problems.push("IFSC must look like HDFC0001234");
-  const masked = maskAccount(b.accountNo);
-  if (!masked) problems.push("Enter the account number — at least the last 4 digits are kept");
+  // owner decision 27 Aug 2026: the FULL number is stored (system pre-production)
+  const accountNo = String(b.accountNo || "").replace(/\D/g, "");
+  if (accountNo.length < 9 || accountNo.length > 18)
+    problems.push("Account number must be 9–18 digits");
+  const masked = maskAccount(accountNo);
   if (!b.allowDisbursement && !b.allowCollection)
     problems.push("Tick at least one use — disbursement, collection, or both");
-  return { ok: problems.length === 0, problems, nickname, bank, ifsc, masked,
-    branchId: Number(b.branchId) || null, ledgerId: Number(b.ledgerId) || null,
+  const branchIds = [...new Set((Array.isArray(b.branchIds) ? b.branchIds : [])
+    .map(Number).filter(n => n > 0))];
+  return { ok: problems.length === 0, problems, nickname, bank, ifsc, accountNo, masked,
+    branchIds, ledgerId: Number(b.ledgerId) || null,
     allowDisbursement: !!b.allowDisbursement, allowCollection: !!b.allowCollection };
 }
 

@@ -34,6 +34,7 @@ export default function EmployeesTab() {
   const [step, setStep] = useState(1);
   const [made, setMade] = useState(null);           // credentials shown once
   const [action, setAction] = useState(null);       // {kind:'suspend'|'reset', id, ...fields}
+  const [confirm, setConfirm] = useState(null);      // { kind: 'master'|'dup', text }
 
   const load = () => fetch("/api/settings/employees").then(r => r.json())
     .then(r => r.ok ? setData(r) : setErr(r.reason))
@@ -57,6 +58,14 @@ export default function EmployeesTab() {
   const roleName = (id) => data.roles.find(r => r.id === id)?.name || "?";
   const branchCode = (id) => data.branches.find(b => b.id === id)?.code || "?";
 
+  async function postRaw(body) {
+    setBusy(true); setErr(null);
+    const r = await fetch("/api/settings/employees", { method: "POST",
+      headers: { "content-type": "application/json" }, body: JSON.stringify(body) })
+      .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
+    setBusy(false);
+    return r;
+  }
   async function post(body) {
     setBusy(true); setErr(null);
     const r = await fetch("/api/settings/employees", { method: "POST",
@@ -82,14 +91,29 @@ export default function EmployeesTab() {
   ];
   const reachable = (n) => n === 1 || miss.slice(0, n - 1).every(m => !m);
 
-  async function createEmployee() {
-    const r = await post({ action: "create", ...w,
-      primaryBranchId: w.primaryBranchId || w.branchIds[0],
-      reportsTo: w.reportsTo || null });
-    if (r) {
-      setMade({ username: r.username, empCode: r.empCode, password: w.password });
-      setWiz(null); setStep(1); load();
+  async function createEmployee(ack) {
+    // typed a designation/department not in the master? one explicit confirmation.
+    if (!ack) {
+      const newbies = [];
+      const dg = (w.designation || "").trim(), dp = (w.department || "").trim();
+      if (dg && !(data.designations || []).some(x => x.toLowerCase() === dg.toLowerCase()))
+        newbies.push(`designation "${dg}"`);
+      if (dp && !(data.departments || []).some(x => x.toLowerCase() === dp.toLowerCase()))
+        newbies.push(`department "${dp}"`);
+      if (newbies.length) {
+        setConfirm({ kind: "master",
+          text: `This will add a NEW ${newbies.join(" and a NEW ")} to the master. Are you sure?` });
+        return;
+      }
     }
+    const r = await postRaw({ action: "create", ...w,
+      primaryBranchId: w.primaryBranchId || w.branchIds[0],
+      reportsTo: w.reportsTo || null, dupAcknowledged: confirm?.kind === "dup" && ack });
+    if (r?.needsDupConfirm) { setConfirm({ kind: "dup", text: r.reason }); return; }
+    if (!r?.ok) { if (r) setErr(r.reason); return; }
+    setConfirm(null);
+    setMade({ username: r.username, empCode: r.empCode, password: w.password });
+    setWiz(null); setStep(1); load();
   }
 
   async function saveMembership(e) {
@@ -300,9 +324,16 @@ export default function EmployeesTab() {
               gap: 12, marginBottom: 14 }}>
               <div><span style={F}>Designation *</span>
                 <input style={I} value={w.designation} onChange={setW("designation")}
-                  placeholder="e.g. Counter Operator" /></div>
+                  list="desig-master" placeholder="pick or type a new one" />
+                <datalist id="desig-master">
+                  {(data.designations || []).map(d => <option key={d} value={d} />)}
+                </datalist></div>
               <div><span style={F}>Department</span>
-                <input style={I} value={w.department} onChange={setW("department")} /></div>
+                <input style={I} value={w.department} onChange={setW("department")}
+                  list="dept-master" placeholder="pick or type a new one" />
+                <datalist id="dept-master">
+                  {(data.departments || []).map(d => <option key={d} value={d} />)}
+                </datalist></div>
               <div><span style={F}>Date of joining *</span>
                 <input type="date" style={I} value={w.doj} onChange={setW("doj")} /></div>
               <div><span style={F}>Employment type</span>
@@ -388,6 +419,17 @@ export default function EmployeesTab() {
             <div className="hint">Read it back to yourself. The username can never change afterwards.</div>
           </>}
 
+          {confirm && (
+            <div style={{ background: "var(--warn-bg, #fdf1d8)", border: "1px solid #e8c97a",
+              borderRadius: 12, padding: "12px 14px", marginTop: 14 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#a06407" }}>{confirm.text}</div>
+              <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                <button className="btn" disabled={busy} onClick={() => createEmployee(true)}>
+                  {busy ? "Saving…" : "Yes — save"}</button>
+                <button className="btn ghost" disabled={busy}
+                  onClick={() => setConfirm(null)}>Go back</button>
+              </div>
+            </div>)}
           <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18,
             borderTop: "1px solid #f0ede4", paddingTop: 14 }}>
             <button className="btn ghost" onClick={() => setWiz(null)}>Cancel</button>
@@ -395,7 +437,8 @@ export default function EmployeesTab() {
               {step > 1 && <button className="btn ghost" onClick={() => setStep(step - 1)}>← Back</button>}
               {step < 6 && <button className="btn" disabled={miss[step - 1]}
                 onClick={() => setStep(step + 1)}>Next →</button>}
-              {step === 6 && <button className="btn" disabled={busy} onClick={createEmployee}>
+              {step === 6 && !confirm && <button className="btn" disabled={busy}
+                onClick={() => createEmployee(false)}>
                 {busy ? "Creating…" : "Create employee →"}</button>}
             </div>
           </div>

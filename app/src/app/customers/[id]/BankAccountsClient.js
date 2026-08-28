@@ -45,7 +45,7 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
           <div style={{ minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.bank}
               <span className="mono" style={{ color: "var(--mut)", fontWeight: 600,
-                marginLeft: 8, fontSize: 12 }}>····{String(a.accountNo).slice(-4)} · {a.ifsc}</span></div>
+                marginLeft: 8, fontSize: 12 }}>{String(a.accountNo)} · {a.ifsc}</span></div>
             <div style={{ fontSize: 12, color: "var(--mut)" }}>{a.holderName}</div>
           </div>
           <div style={{ display: "flex", gap: 7, alignItems: "center", flexShrink: 0 }}>

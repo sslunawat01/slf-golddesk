@@ -57,6 +57,11 @@ export default function BranchesTab() {
     <>
       {note && <div style={{ marginBottom: 12 }}><span className="chip warn">{note}</span></div>}
 
+      {data.canEdit && !form && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button className="btn" onClick={() => setForm({ ...EMPTY })}>+ Add branch</button>
+        </div>)}
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 14 }}>
         {data.entities.map(e => (
           <div key={e.id} className="card">
@@ -157,10 +162,6 @@ export default function BranchesTab() {
         </div>
       )}
 
-      {data.canEdit && !form && (
-        <button className="btn" style={{ marginTop: 14 }} onClick={() => setForm({ ...EMPTY })}>
-          + Add branch</button>
-      )}
 
       {form && (
         <div className="card" style={{ marginTop: 14, border: "1px dashed #cfc9ba" }}>

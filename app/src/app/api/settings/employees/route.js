@@ -59,6 +59,12 @@ export async function GET() {
     `SELECT employee_id, branch_id FROM employee_branch
       WHERE effective_to IS NULL OR effective_to >= CURRENT_DATE`);
   const roles = await q(`SELECT id, name FROM role WHERE active ORDER BY id`);
+  const designations = (await q(
+    `SELECT DISTINCT designation AS v FROM employee
+      WHERE designation IS NOT NULL AND designation <> '' ORDER BY 1`)).map(r => r.v);
+  const departments = (await q(
+    `SELECT DISTINCT department AS v FROM employee
+      WHERE department IS NOT NULL AND department <> '' ORDER BY 1`)).map(r => r.v);
   const branches = await q(
     `SELECT id, code, name, is_ho FROM branch WHERE active ORDER BY code`);
   const en = await enums();
@@ -80,7 +86,7 @@ export async function GET() {
   return NextResponse.json({ ok: true, rows,
     roles: roles.map(r => ({ id: Number(r.id), name: r.name })),
     branches: branches.map(b => ({ id: Number(b.id), code: b.code, name: b.name, isHo: b.is_ho })),
-    enums: en, selfId: actor.employeeId,
+    enums: en, selfId: actor.employeeId, designations, departments,
     canEdit: can(actor, "settings", { need: "full" }).ok });
 }
 
@@ -108,6 +114,14 @@ export async function POST(req) {
       const photoId = Number(b.photoFileId?.fileId ?? b.photoFileId) || null;
       const dup = await one(`SELECT id FROM employee WHERE lower(username) = lower($1)`, [v4.username]);
       if (dup) return bad(["That username is already taken"], 409);
+
+      // duplicate identity checks — same table refuses; employee↔customer asks to confirm
+      const dupCheck = await identityDuplicates({ panNo: v2.panNo, aadhaarNo: v2.aadhaarNo,
+        aadhaarLast4: v2.aadhaarLast4, excludeEmployeeId: null });
+      if (dupCheck.refuse) return bad([dupCheck.refuse], 409);
+      if (dupCheck.confirm && !b.dupAcknowledged)
+        return NextResponse.json({ ok: false, needsDupConfirm: true,
+          reason: dupCheck.confirm }, { status: 409 });
 
       const row = await tx(async (cl) => {
         const r = await cl.query(
@@ -162,6 +176,13 @@ export async function POST(req) {
       if (problems.length) return bad(problems);
       if (b.gender && !en.genders.includes(b.gender)) return bad(["Unknown gender option"]);
       if (b.employmentType && !en.types.includes(b.employmentType)) return bad(["Unknown employment type"]);
+
+      const dupCheck = await identityDuplicates({ panNo: v2.panNo, aadhaarNo: v2.aadhaarNo,
+        aadhaarLast4: v2.aadhaarLast4, excludeEmployeeId: emp.id });
+      if (dupCheck.refuse) return bad([dupCheck.refuse], 409);
+      if (dupCheck.confirm && !b.dupAcknowledged)
+        return NextResponse.json({ ok: false, needsDupConfirm: true,
+          reason: dupCheck.confirm }, { status: 409 });
 
       await tx(async (cl) => {
         await cl.query(
@@ -287,4 +308,38 @@ export async function POST(req) {
 
 function bad(problems, status = 400) {
   return NextResponse.json({ ok: false, reason: problems[0], problems }, { status });
+}
+
+
+/** Duplicate identity scan for an employee being created/updated.
+ *  Same-table (employee) PAN/Aadhaar → hard refusal.
+ *  Cross-table (customer) PAN exact or Aadhaar last-4 → confirmation message
+ *  (an employee may legitimately also be a customer; last-4 can collide).  */
+async function identityDuplicates({ panNo, aadhaarNo, aadhaarLast4, excludeEmployeeId }) {
+  const notSelf = excludeEmployeeId ? ` AND id <> ${Number(excludeEmployeeId)}` : "";
+  if (panNo) {
+    const e = await one(
+      `SELECT full_name, emp_code FROM employee WHERE upper(pan_no) = upper($1)` + notSelf, [panNo]);
+    if (e) return { refuse: `Another employee already has that PAN — ${e.full_name} (${e.emp_code})` };
+  }
+  if (aadhaarNo) {
+    const e = await one(
+      `SELECT full_name, emp_code FROM employee WHERE aadhaar_no = $1` + notSelf, [aadhaarNo]);
+    if (e) return { refuse: `Another employee already has that Aadhaar — ${e.full_name} (${e.emp_code})` };
+  }
+  const hits = [];
+  if (panNo) {
+    const c = await one(
+      `SELECT full_name, cust_no FROM customer WHERE upper(pan_no) = upper($1) LIMIT 1`, [panNo]);
+    if (c) hits.push(`a customer has the same PAN — ${c.full_name} (${c.cust_no})`);
+  }
+  if (aadhaarLast4) {
+    const c = await one(
+      `SELECT full_name, cust_no FROM customer WHERE aadhaar_last4 = $1 LIMIT 1`, [aadhaarLast4]);
+    if (c) hits.push(`a customer's Aadhaar ends in the same 4 digits — ${c.full_name} (${c.cust_no})`);
+  }
+  if (hits.length) return { confirm:
+    `Possible duplicate: ${hits.join("; ")}. If this employee is genuinely the same person ` +
+    `(or genuinely different), confirm to save anyway.` };
+  return {};
 }

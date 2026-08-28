@@ -43,6 +43,7 @@ export default function NewCustomerClient({ docTypes, prefill }) {
   const [busy, setBusy] = useState(false);
   const [chip, setChip] = useState(null);
   const [confirmBlacklist, setConfirmBlacklist] = useState(false);
+  const [confirmDup, setConfirmDup] = useState(null);   // { text, force }
   const [pin, setPin] = useState({});
   const [note, setNote] = useState({});
 
@@ -125,10 +126,12 @@ export default function NewCustomerClient({ docTypes, prefill }) {
     patchBank(i, { upiVerified: true, upiNote: "UPI active — name matched via API" });
   }
 
-  async function save(force = false) {
+  async function save(force = false, dupOk = false) {
     setBusy(true); setChip(null);
-    const r = await post("/api/customers", { ...c, blacklistAcknowledged: force });
+    const r = await post("/api/customers",
+      { ...c, blacklistAcknowledged: force, dupAcknowledged: dupOk });
     setBusy(false);
+    if (r.needsDupConfirm) return setConfirmDup({ text: r.reason, force });
     if (r.needsBlacklistConfirm) return setConfirmBlacklist(true);
     if (!r.ok) return setChip({ tone: "bad", text: r.reason });
     window.location.href = `/customers/${r.id}?created=1`;
@@ -494,6 +497,21 @@ export default function NewCustomerClient({ docTypes, prefill }) {
       </div>
       {chip && <div style={{ marginTop: 10 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
 
+      {confirmDup && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.6)", display: "grid",
+          placeItems: "center", zIndex: 40, padding: 16 }}>
+          <div className="card" style={{ maxWidth: 460, borderTop: "6px solid #e0a63a" }}>
+            <h2 style={{ fontSize: 19, fontWeight: 900 }}>Possible duplicate</h2>
+            <p style={{ color: "var(--mut)", fontSize: 14, margin: "10px 0" }}>{confirmDup.text}</p>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+              <button className="btn ghost" onClick={() => setConfirmDup(null)}>Go back</button>
+              <button className="btn green" onClick={() => {
+                const f = confirmDup.force; setConfirmDup(null); save(f, true); }}>
+                Not a duplicate — save</button>
+            </div>
+          </div>
+        </div>)}
+
       {confirmBlacklist && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.6)", display: "grid",
           placeItems: "center", zIndex: 40, padding: 16 }}>
@@ -506,7 +524,7 @@ export default function NewCustomerClient({ docTypes, prefill }) {
               padding: 10, fontSize: 14, fontWeight: 700 }}>“{c.narration}”</div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
               <button className="btn ghost" onClick={() => setConfirmBlacklist(false)}>Go back</button>
-              <button className="btn green" onClick={() => { setConfirmBlacklist(false); save(true); }}>
+              <button className="btn green" onClick={() => { setConfirmBlacklist(false); save(true, true); }}>
                 Save as blacklisted</button>
             </div>
           </div>

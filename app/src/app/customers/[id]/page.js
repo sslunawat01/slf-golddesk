@@ -13,6 +13,7 @@ export const dynamic = "force-dynamic";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
 const g = (mg) => (Number(mg) / 1000).toFixed(3);
+const dmy = (d) => { const s = String(d).slice(0, 10).split("-"); return `${s[2]}-${s[1]}-${s[0]}`; };
 
 export default async function Customer360({ params, searchParams }) {
   const { id } = await params;
@@ -166,6 +167,8 @@ export default async function Customer360({ params, searchParams }) {
                     color: "inherit", textDecoration: "none" }}
                     title="Open the loan profile">{l.loan_no} <span style={{ color: "var(--mut)",
                     fontWeight: 400 }}>›</span></a>
+                  <span className="mono" style={{ color: "var(--mut)", fontSize: 12.5,
+                    fontWeight: 700, marginLeft: 8 }}>{dmy(l.disbursed_at)}</span>
                   <div style={{ color: "var(--mut)", fontSize: 13 }}>
                     {l.scheme} · {g(l.net_mg)} g · day {l.age_days}</div>
                 </div>

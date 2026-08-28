@@ -150,6 +150,39 @@ export async function POST(req) {
       return NextResponse.json({ ok: true, ...out });
     }
 
+    // ————————— delete a draft (never-published only) —————————
+    if (action === "delete_draft") {
+      const sv = await one(`SELECT * FROM scheme_version WHERE id=$1`, [b.versionId]);
+      if (!sv) return NextResponse.json({ ok: false, reason: "Version not found" }, { status: 404 });
+      if (sv.status !== "draft")
+        return NextResponse.json({ ok: false,
+          reason: "Only a draft can be deleted — published versions are permanent because running loans price from them" },
+          { status: 409 });
+      const used = await one(
+        `SELECT (SELECT count(*) FROM loan WHERE scheme_version_id=$1)::int
+              + (SELECT count(*) FROM loan_application WHERE scheme_version_id=$1)::int AS n`,
+        [b.versionId]);
+      if (used.n > 0)
+        return NextResponse.json({ ok: false,
+          reason: "This version is referenced by a loan or application and cannot be deleted" },
+          { status: 409 });
+      const others = await one(
+        `SELECT count(*)::int AS n FROM scheme_version WHERE scheme_id=$1 AND id<>$2`,
+        [sv.scheme_id, b.versionId]);
+      await tx(async (cl) => {
+        await cl.query(`DELETE FROM scheme_version WHERE id=$1`, [b.versionId]); // slabs+branches cascade
+        if (others.n === 0) {
+          await cl.query(`DELETE FROM role_scheme WHERE scheme_id=$1`, [sv.scheme_id]);
+          await cl.query(`DELETE FROM scheme WHERE id=$1`, [sv.scheme_id]);
+        }
+        await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+          table: "scheme_version", entityId: Number(b.versionId), action: "scheme_draft_deleted",
+          before: { schemeId: sv.scheme_id, versionNo: sv.version_no,
+                    schemeAlsoDeleted: others.n === 0 } });
+      }, { entityIds: "ALL" });
+      return NextResponse.json({ ok: true, schemeDeleted: others.n === 0 });
+    }
+
     // ————————— publish a draft —————————
     // W6: single-person publish, relaxed by migration 010. When maker/checker
     // arrives, this becomes submit-for-approval instead.

@@ -80,9 +80,11 @@ export default async function LoanProfile({ params }) {
   const principalOut = P.settlement - P.interestDue - P.penalDue - P.chargesDue;
   const totalNetMg = items.reduce((s, it) => s + Number(it.net_mg), 0);
 
-  // signed thumbnails
-  const thumbs = (await Promise.all(photos.map(p =>
-    viewUrl(p.thumb_s3_key || p.s3_key).catch(() => null)))).filter(Boolean);
+  // signed photo URLs — thumb for display, full for click-to-zoom
+  const pics = (await Promise.all(photos.map(async (p) => ({
+    thumb: await viewUrl(p.thumb_s3_key || p.s3_key).catch(() => null),
+    full: await viewUrl(p.s3_key).catch(() => null),
+  })))).filter(p => p.thumb);
 
   // one ledger: receipts + charges + disbursement, newest first
   const splitOf = (rid) => {
@@ -175,12 +177,20 @@ export default async function LoanProfile({ params }) {
         <div style={{ flex: "1 1 380px", minWidth: 320, display: "grid", gap: 14 }}>
           <div className="card">
             <H>Ornaments pledged</H>
-            {thumbs.length > 0 && (
-              <div style={{ display: "flex", gap: 8, marginBottom: 10, flexWrap: "wrap" }}>
-                {thumbs.map((u, i) => (
-                  <img key={i} src={u} alt="" style={{ width: 74, height: 74, objectFit: "cover",
-                    borderRadius: 10, border: "1px solid var(--line)" }} />))}
-              </div>)}
+            {pics.length > 0 ? (
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                {pics.map((p, i) => (
+                  <a key={i} href={p.full || p.thumb} target="_blank" rel="noreferrer"
+                    title="Open full size">
+                    <img src={p.thumb} alt="ornaments" style={{ width: 120, height: 120,
+                      objectFit: "cover", borderRadius: 12, border: "1px solid var(--line)",
+                      display: "block" }} /></a>))}
+              </div>
+            ) : (
+              <div style={{ border: "1px dashed #cfc9ba", borderRadius: 12, padding: "10px 14px",
+                color: "var(--mut)", fontSize: 13, marginBottom: 10 }}>
+                No ornament photo on file for this loan.</div>
+            )}
             {items.map((it, i) => (
               <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0, padding: "9px 0",
                 display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap",

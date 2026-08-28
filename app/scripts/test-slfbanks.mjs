@@ -20,7 +20,12 @@ no("a two-character nickname is refused — staff pick accounts by name",
 no("a malformed IFSC is refused", validSlfBank({ ...base, ifsc: "HDFC001234" }), "hdfc0001234");
 no("an account allowed for NOTHING is refused",
   validSlfBank({ ...base, allowDisbursement: false, allowCollection: false }), "at least one use");
-eq("no branch means every branch may use it", validSlfBank(base).branchId, null);
+eq("no branches ticked means every branch may use it (mig 017)",
+  JSON.stringify(validSlfBank(base).branchIds), "[]");
+eq("ticked branches come back as a clean id list",
+  JSON.stringify(validSlfBank({ ...base, branchIds: [2, "1", 2] }).branchIds), "[2,1]");
+no("a 5-digit account number is refused (full number now stored — owner 27 Aug)",
+  validSlfBank({ ...base, accountNo: "12345" }), "9–18 digits");
 
 console.log("\n§3 History never deletes");
 eq("a used account explains itself",

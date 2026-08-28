@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentActor } from "@/lib/session.js";
+import Shell from "@/components/Shell.js";
 import { visibleDesks, sanctionAuthority } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
 
@@ -40,35 +41,16 @@ export default async function Home() {
   };
 
   return (
-    <>
-      <div style={{ background: "var(--vault)", color: "#fff" }}>
-        <div className="wrap" style={{ display: "flex", justifyContent: "space-between",
-          alignItems: "center", padding: "14px 16px", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontWeight: 900, fontSize: 20, letterSpacing: "-.5px" }}>
-              SLF <span style={{ color: "var(--brass)" }}>GoldDesk</span></div>
-            <div style={{ color: "#5f8f7b", fontSize: 12, fontWeight: 600 }}>
-              {actor.actingBranch ? `${actor.actingBranch.code} · ${actor.actingBranch.name}` : "no branch"}
-              {" · "}{actor.fullName}</div>
-          </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            {desks.dailyRate
-              ? <a href="/hq/rate" className="mono" style={{ background: rate ? "#123227" : "#fdf1d8",
-                  color: rate ? "var(--brass-soft)" : "#a06407", padding: "6px 12px", borderRadius: 99,
-                  fontWeight: 800, fontSize: 13, textDecoration: "none" }}>
-                  {rate ? inr(rate.base_paise) + "/g" : "rate not set →"}</a>
-              : <span className="mono" style={{ background: rate ? "#123227" : "#fdf1d8",
-                  color: rate ? "var(--brass-soft)" : "#a06407", padding: "6px 12px", borderRadius: 99,
-                  fontWeight: 800, fontSize: 13 }}>
-                  {rate ? inr(rate.base_paise) + "/g" : "rate not set"}</span>}
-            <form action="/api/auth/logout" method="post">
-              <button className="btn ghost" style={{ padding: "8px 14px", fontSize: 13 }}>Sign out</button>
-            </form>
-          </div>
-        </div>
-      </div>
-
-      <div className="wrap" style={{ padding: "22px 16px 60px" }}>
+    <Shell>
+      {!rate && (
+        <div style={{ marginBottom: 14 }}>
+          {desks.dailyRate
+            ? <a href="/hq/rate" className="chip warn" style={{ textDecoration: "none" }}>
+                Today&rsquo;s gold rate is not set — lending is locked until it is. Set it →</a>
+            : <span className="chip warn">
+                Today&rsquo;s gold rate is not set — lending is locked until HO sets it.</span>}
+        </div>)}
+      <div>
         <a href="/search" style={{ display: "block", textDecoration: "none" }}>
           <div style={{ border: "1px solid #cfc9ba", borderRadius: 12, padding: "16px 18px",
             background: "#fff", color: "var(--mut)", fontSize: 16, maxWidth: 760 }}>
@@ -169,6 +151,6 @@ export default async function Home() {
           </div>
         </div>
       </div>
-    </>
+    </Shell>
   );
 }

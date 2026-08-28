@@ -10,6 +10,25 @@ const inr = (r) => "₹" + Math.round(Number(r || 0)).toLocaleString("en-IN");
 const dmy = (d) => d ? String(d).split("-").reverse().join("-") : "—";
 
 const STEPS = ["Identity", "Interest", "Charges", "Limits", "Review"];
+// a draft version row → the wizard form (mirror of the server's toForm)
+function rowToForm(v, slabs) {
+  return {
+    code: "", name: "",   // filled by the wizard from the scheme row
+    calcMethod: v.calc_method, interestPct: v.interest_pct == null ? "" : Number(v.interest_pct),
+    slabMode: v.slab_mode || "retroactive",
+    slabs: (slabs || []).length
+      ? slabs.map(s => ({ fromDay: Number(s.from_day), toDay: Number(s.to_day), ratePct: Number(s.rate_pct) }))
+      : [{ fromDay: 1, toDay: "", ratePct: "" }],
+    daysInYear: Number(v.days_in_year), minInterestDays: Number(v.min_interest_days),
+    tenureDays: Number(v.tenure_days), penalRatePct: Number(v.penal_rate_pct),
+    penalGraceDays: Number(v.penal_grace_days), fundingPct: Number(v.funding_pct),
+    minLoanRs: Number(v.min_loan_paise) / 100, maxLoanRs: Number(v.max_loan_paise) / 100,
+    docChargePct: Number(v.doc_charge_pct), docMinRs: Number(v.doc_charge_min_paise) / 100,
+    docMaxRs: Number(v.doc_charge_max_paise) / 100,
+    effectiveFrom: String(v.effective_from).slice(0, 10),
+  };
+}
+
 const BLANK = { code: "", name: "", calcMethod: "", interestPct: "", slabMode: "retroactive",
   slabs: [{ fromDay: 1, toDay: "", ratePct: "" }, { fromDay: "", toDay: "", ratePct: "" }],
   daysInYear: 365, minInterestDays: 15, tenureDays: "", penalRatePct: 2, penalGraceDays: 7,
@@ -55,7 +74,7 @@ export default function SchemesTab() {
   // ————————————————————— scheme detail —————————————————————
   if (open) {
     const sc = data.schemes.find(s => s.id === open);
-    const vers = versionsOf(open);
+    const vers = [...(versionsOf(open))].sort((a, b) => Number(b.version_no) - Number(a.version_no));
     const td = { padding: "9px 11px", borderBottom: "1px solid #efece3", fontSize: 13 };
     return (
       <>
@@ -102,7 +121,9 @@ export default function SchemesTab() {
             <tbody>
               {vers.map(v => (
                 <VersionRow key={v.id} v={v} td={td} data={data} slabsOf={slabsOf}
-                  allocOf={allocOf} post={post} reload={load} busy={busy} err={err} />
+                  allocOf={allocOf} post={post} reload={load} busy={busy} err={err}
+                  onEdit={() => setWiz({ schemeId: v.scheme_id, versionId: v.id, step: 0,
+                    form: rowToForm(v, slabsOf(v.id)) })} />
               ))}
             </tbody>
           </table>
@@ -119,6 +140,13 @@ export default function SchemesTab() {
   const td = { padding: "10px 12px", borderBottom: "1px solid #efece3", fontSize: 13.5 };
   return (
     <>
+      {data.canEdit && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button className="btn"
+            onClick={() => setWiz({ schemeId: null, versionId: null, step: 0,
+              form: { ...BLANK, daysInYear: data.daysDefault ?? 365 } })}>
+            + New scheme</button>
+        </div>)}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 640 }}>
           <thead><tr style={{ background: "#f0eee6" }}>
@@ -169,11 +197,6 @@ export default function SchemesTab() {
               own figure for life; running loans never move.</span>
           </div>
         )}
-        {data.canEdit && (
-        <button className="btn" style={{ marginTop: 12 }}
-          onClick={() => setWiz({ schemeId: null, versionId: null, step: 0, form: { ...BLANK, daysInYear: data.daysDefault ?? 365 } })}>
-          + New scheme</button>
-      )}
       <p className="hint" style={{ marginTop: 8 }}>
         Editing never overwrites: a new version carries an effective date and running loans
         keep the version they were sanctioned on.</p>
@@ -182,7 +205,7 @@ export default function SchemesTab() {
 }
 
 // ————————————————————— version row with publish and allocation —————————————————————
-function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
+function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy, onEdit }) {
   const [showAll, setShowAll] = useState(false);
   const [alloc, setAlloc] = useState(null); // branch ids while editing
   const termsText = v.calc_method === "simple"
@@ -192,14 +215,20 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
   const chipClass = v.status === "published" && !v.effective_to ? "ok" : v.status === "draft" ? "warn" : "mut";
   const lendable = data.branches.filter(b => !b.is_ho);
 
+  const [perr, setPerr] = useState(null);       // panel-local error (the old setErr was out of scope and crashed)
+  const [confirmDel, setConfirmDel] = useState(false);
   async function publish() {
-    const ids = alloc ?? allocOf(v.id);
+    const ids = alloc ?? [];
     if (!ids.length) {
-      setErr("Tick at least one branch - a scheme is never published everywhere by default");
+      setPerr("Tick at least one branch — a scheme is never published everywhere by default");
       return;
     }
     const r = await post({ action: "publish", versionId: v.id, branchIds: ids });
-    if (r) { setAlloc(null); reload(); }
+    if (r) { setAlloc(null); setPerr(null); reload(); }
+  }
+  async function deleteDraft() {
+    const r = await post({ action: "delete_draft", versionId: v.id });
+    if (r) reload();
   }
   async function saveAlloc() {
     const r = await post({ action: "allocate", versionId: v.id, branchIds: alloc });
@@ -221,9 +250,19 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
           <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12,
               marginRight: 6 }}
             onClick={() => setShowAll(!showAll)}>{showAll ? "Hide details" : "Details"}</button>
-          {data.canEdit && v.status === "draft" && (
+          {data.canEdit && v.status === "draft" && (<>
+            <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12, marginRight: 6 }}
+              disabled={busy} onClick={onEdit}>Edit</button>
+            {!confirmDel
+              ? <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12,
+                  marginRight: 6, color: "var(--bad)" }} disabled={busy}
+                  onClick={() => setConfirmDel(true)}>Delete</button>
+              : <button className="btn" style={{ padding: "6px 11px", fontSize: 12,
+                  marginRight: 6, background: "var(--bad)" }} disabled={busy}
+                  onClick={deleteDraft}>Confirm delete?</button>}
             <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
-              disabled={busy} onClick={publish}>Publish</button>)}
+              disabled={busy} onClick={() => { setPerr(null);
+                setAlloc(alloc ?? allocOf(v.id)); }}>Publish…</button></>)}
           {data.canEdit && v.status === "published" && !v.effective_to && (
             <button className="btn ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
               onClick={() => setAlloc(allocOf(v.id))}>Branches</button>)}
@@ -255,10 +294,16 @@ function VersionRow({ v, td, data, slabsOf, allocOf, post, reload, busy }) {
           </div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 10 }}>
             <button className="btn ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
-              onClick={() => setAlloc(null)}>Cancel</button>
-            <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
-              disabled={busy || !alloc.length} onClick={saveAlloc}>Save allocation</button>
+              onClick={() => { setAlloc(null); setPerr(null); }}>Cancel</button>
+            {v.status === "draft"
+              ? <button className="btn green" style={{ padding: "6px 12px", fontSize: 12.5 }}
+                  disabled={busy} onClick={publish}>
+                  {busy ? "Publishing…" : "Publish to ticked branches"}</button>
+              : <button className="btn" style={{ padding: "6px 12px", fontSize: 12.5 }}
+                  disabled={busy || !alloc.length} onClick={saveAlloc}>Save allocation</button>}
           </div>
+          {perr && <div style={{ marginTop: 8, textAlign: "right" }}>
+            <span className="chip bad">{perr}</span></div>}
         </td></tr>
       )}
       {showAll && (
@@ -327,6 +372,12 @@ function Wizard({ data, wiz, setWiz, post, busy, err, setErr, reload }) {
     const s = slabRows.map((x, j) => j === i ? { ...x, [k]: v } : x);
     // auto-chain: next fromDay follows this toDay
     if (k === "toDay" && s[i + 1]) s[i + 1] = { ...s[i + 1], fromDay: Number(v) + 1 || "" };
+    // №10: last row ends before tenure → a fresh row appears by itself
+    const tenure = Number(f.tenureDays);
+    if (k === "toDay" && i === s.length - 1 && tenure > 0) {
+      const end = Number(v);
+      if (end > 0 && end < tenure) s.push({ fromDay: end + 1, toDay: "", ratePct: "" });
+    }
     setV("slabs", s);
   };
 

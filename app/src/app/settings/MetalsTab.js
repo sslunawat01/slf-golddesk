@@ -50,6 +50,13 @@ export default function MetalsTab() {
         textTransform: "uppercase", color: "var(--mut)", marginBottom: 8 }}>
         Metals &amp; purity — what the valuation engine multiplies by</div>
 
+      {canEdit && !edit && !add && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button className="btn" onClick={() => setAdd({ mode: "grade", metalId: gold?.id || "",
+            karat: "", pct: "", kind: data.addableKinds[0] || "", valuedAsPctOfGold: false })}>
+            + Add metal or purity</button>
+        </div>)}
+
       {err && <div style={{ marginBottom: 10 }}><span className="chip bad">{err}</span></div>}
 
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -141,14 +148,6 @@ export default function MetalsTab() {
         Rate at purity = base rate × purity %. The scheme's funding % then applies on top.
         Adding a grade here makes it selectable on the appraisal grid — no code change.
       </div>
-
-      {canEdit && !edit && !add && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-          <button className="btn" onClick={() => setAdd({ mode: "grade", metalId: gold?.id || "",
-            karat: "", pct: "", kind: data.addableKinds[0] || "", valuedAsPctOfGold: false })}>
-            + Add metal or purity</button>
-        </div>
-      )}
 
       {/* ——— add modal (two modes) ——— */}
       {add && (

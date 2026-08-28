@@ -27,6 +27,37 @@ export async function POST(req) {
   const v = validateNewCustomer(c);
   if (!v.ok) return NextResponse.json({ ok: false, reason: `Missing: ${v.first}`, missing: v.missing }, { status: 400 });
 
+  // duplicate identity checks — same table refuses; customer↔employee asks to confirm
+  const pan = (c.pan || "").trim().toUpperCase();
+  const aadhaar = String(c.aadhaar || "").replace(/\D/g, "");
+  if (pan) {
+    const dc = await one(
+      `SELECT full_name, cust_no FROM customer WHERE upper(pan_no) = $1 LIMIT 1`, [pan]);
+    if (dc) return NextResponse.json({ ok: false,
+      reason: `Already a customer with this PAN — ${dc.full_name} (${dc.cust_no}). Open their profile instead of creating a duplicate.` },
+      { status: 409 });
+  }
+  if (!c.dupAcknowledged) {
+    const hits = [];
+    if (aadhaar.length === 12) {
+      const de = await one(
+        `SELECT full_name, emp_code FROM employee WHERE aadhaar_no = $1 LIMIT 1`, [aadhaar]);
+      if (de) hits.push(`an employee has the same Aadhaar — ${de.full_name} (${de.emp_code})`);
+      const dc4 = await one(
+        `SELECT full_name, cust_no FROM customer WHERE aadhaar_last4 = $1 LIMIT 1`,
+        [aadhaar.slice(-4)]);
+      if (dc4) hits.push(`a customer's Aadhaar ends in the same 4 digits — ${dc4.full_name} (${dc4.cust_no})`);
+    }
+    if (pan) {
+      const de = await one(
+        `SELECT full_name, emp_code FROM employee WHERE upper(pan_no) = $1 LIMIT 1`, [pan]);
+      if (de) hits.push(`an employee has the same PAN — ${de.full_name} (${de.emp_code})`);
+    }
+    if (hits.length) return NextResponse.json({ ok: false, needsDupConfirm: true,
+      reason: `Possible duplicate: ${hits.join("; ")}. If this is genuinely a different person (or an employee who is also a customer), confirm to save anyway.` },
+      { status: 409 });
+  }
+
   const bl = blacklistState(c.maxOpenLoans, c.maxOutstandingPaise, c.narration);
   if (bl.isBlacklisted && !c.blacklistAcknowledged)
     return NextResponse.json({ ok: false, needsBlacklistConfirm: true,

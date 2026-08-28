@@ -39,6 +39,10 @@ export default function ChargesTab() {
 
   return (
     <>
+      {data.canEdit && !form && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button className="btn" onClick={() => setForm({ ...EMPTY })}>+ Add charge</button>
+        </div>)}
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 560 }}>
           <thead><tr style={{ background: "#f0eee6" }}>
@@ -77,10 +81,6 @@ export default function ChargesTab() {
         A charge that has been used on a loan can never be deleted — switch it off instead.
         Its history stays priced as it was.</p>
 
-      {data.canEdit && !form && (
-        <button className="btn" style={{ marginTop: 8 }} onClick={() => setForm({ ...EMPTY })}>
-          + Add charge</button>
-      )}
 
       {form && (
         <div className="card" style={{ marginTop: 14, border: "1px dashed #cfc9ba" }}>

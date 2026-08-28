@@ -52,6 +52,11 @@ export default function ItemsTab() {
         textTransform: "uppercase", color: "var(--mut)", marginBottom: 8 }}>
         Item master — what the appraisal grid may list</div>
 
+      {canEdit && !form && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button className="btn" onClick={() => setForm({ ...BLANK })}>+ Add item</button>
+        </div>)}
+
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap",
         marginBottom: 10 }}>
         <input style={{ ...I, flex: "1 1 220px", minWidth: 180 }} value={qs}
@@ -121,7 +126,7 @@ export default function ItemsTab() {
             <div><span style={F}>Metal</span>
               <select style={I} value={form.metalId}
                 onChange={e => setForm({ ...form, metalId: Number(e.target.value) })}>
-                <option value={0}>—</option>
+                <option value={0}>— select metal * —</option>
                 {data.metals.map(m => <option key={m.id} value={m.id}>{cap(m.kind)}</option>)}
               </select></div>
           </div>
@@ -146,9 +151,6 @@ export default function ItemsTab() {
         gap: 10, flexWrap: "wrap", marginTop: 10 }}>
         <span className="hint">
           Deactivating an item hides it from new appraisals — loans already carrying it are untouched.</span>
-        {canEdit && !form &&
-          <button className="btn" onClick={() => setForm({ ...BLANK,
-            metalId: data.metals[0]?.id || 0 })}>+ Add item</button>}
       </div>
     </>
   );

@@ -6,7 +6,7 @@ const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
 const I = { width: "100%", border: "1px solid #cfc9ba", borderRadius: 10, padding: "0 11px",
   height: 40, fontSize: 13.5, background: "#fff", boxSizing: "border-box" };
-const BLANK = { nickname: "", bank: "", ifsc: "", accountNo: "", branchId: 0, ledgerId: 0,
+const BLANK = { nickname: "", bank: "", ifsc: "", accountNo: "", branchIds: [], ledgerId: 0,
   allowDisbursement: true, allowCollection: true };
 
 export default function BanksTab() {
@@ -54,6 +54,11 @@ export default function BanksTab() {
         textTransform: "uppercase", color: "var(--mut)", marginBottom: 8 }}>
         Company bank accounts — where disbursements leave from and collections land</div>
 
+      {data.canEdit && !form && (
+        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
+          <button className="btn" onClick={() => setForm({ ...BLANK })}>+ Add account</button>
+        </div>)}
+
       {err && <div style={{ marginBottom: 10 }}><span className="chip bad">{err}</span></div>}
 
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
@@ -71,7 +76,7 @@ export default function BanksTab() {
                   <span className="mono" style={{ color: "var(--mut)", fontSize: 11.5,
                     marginLeft: 6 }}>{a.ifsc}</span></td>
                 <td style={{ ...td, fontFamily: "ui-monospace,monospace", fontSize: 12.5 }}>
-                  {a.masked}</td>
+                  {a.accountNo}</td>
                 <td style={{ ...td, color: "var(--mut)", fontSize: 12.5 }}>{a.branchLabel}</td>
                 <td style={td}>
                   {a.allowDisbursement && <span className="chip mut" style={{ marginRight: 4 }}>disburse</span>}
@@ -90,9 +95,10 @@ export default function BanksTab() {
                           if (r) load(); }}>{a.active ? "Switch off" : "Switch on"}</button>
                       <button className="btn ghost" style={{ padding: "6px 11px", fontSize: 12 }}
                         onClick={() => setForm({ ...BLANK, id: a.id, nickname: a.nickname,
-                          bank: a.bank, ifsc: a.ifsc, accountNo: "", branchId: a.branchId || 0,
+                          bank: a.bank, ifsc: a.ifsc, accountNo: a.accountNo,
+                          branchIds: [...(a.branchIds || [])],
                           ledgerId: a.ledgerId || 0, allowDisbursement: a.allowDisbursement,
-                          allowCollection: a.allowCollection, masked: a.masked })}>Edit</button>
+                          allowCollection: a.allowCollection })}>Edit</button>
                     </>}
                   </div>
                 </td>
@@ -120,19 +126,11 @@ export default function BanksTab() {
             <div><span style={F}>Bank *</span>
               <input style={I} value={form.bank}
                 onChange={e => setForm({ ...form, bank: e.target.value })} /></div>
-            <div><span style={F}>Account number *{form.id ? " — blank keeps " + form.masked : ""}</span>
+            <div><span style={F}>Account number * — 9–18 digits</span>
               <input style={{ ...I, fontFamily: "ui-monospace,monospace" }} inputMode="numeric"
-                value={form.accountNo} placeholder={form.id ? form.masked : "Full number — stored masked"}
+                value={form.accountNo} placeholder="50100234567890"
                 onChange={e => setForm({ ...form,
-                  accountNo: e.target.value.replace(/\D/g, "").slice(0, 20) })} />
-              <div className="hint" style={{ marginTop: 4 }}>
-                Only the last 4 digits are kept — the full number never enters the database.</div></div>
-            <div><span style={F}>Branch scope</span>
-              <select style={I} value={form.branchId}
-                onChange={e => setForm({ ...form, branchId: Number(e.target.value) })}>
-                <option value={0}>All branches</option>
-                {data.branches.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}
-              </select></div>
+                  accountNo: e.target.value.replace(/\D/g, "").slice(0, 18) })} /></div>
             {data.ledgers.length > 0 &&
               <div><span style={F}>Ledger — optional</span>
                 <select style={I} value={form.ledgerId}
@@ -140,6 +138,23 @@ export default function BanksTab() {
                   <option value={0}>—</option>
                   {data.ledgers.map(l => <option key={l.id} value={l.id}>{l.label}</option>)}
                 </select></div>}
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <span style={F}>Available at — tick branches, or none for every branch</span>
+            <div style={{ display: "flex", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+              <button style={tick(form.branchIds.length === 0)}
+                onClick={() => setForm({ ...form, branchIds: [] })}>
+                {form.branchIds.length === 0 ? "✓" : ""} All branches</button>
+              {data.branches.map(b => {
+                const on = form.branchIds.includes(b.id);
+                return (
+                  <button key={b.id} style={tick(on)}
+                    onClick={() => setForm({ ...form,
+                      branchIds: on ? form.branchIds.filter(x => x !== b.id)
+                                    : [...form.branchIds, b.id] })}>
+                    {on ? "✓" : ""} {b.label}</button>);
+              })}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <button style={tick(form.allowDisbursement)}
@@ -167,10 +182,6 @@ export default function BanksTab() {
         </div>
       )}
 
-      {data.canEdit && !form && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-          <button className="btn" onClick={() => setForm({ ...BLANK })}>+ Add account</button>
-        </div>)}
     </>
   );
 }

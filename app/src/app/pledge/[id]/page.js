@@ -39,7 +39,12 @@ export default async function PledgePage({ params }) {
     q(`SELECT id, bank, account_no AS "accountNo", ifsc, holder_name AS "holderName",
               (verified_at IS NOT NULL OR cheque_file_id IS NOT NULL) AS payable
          FROM customer_bank_account WHERE customer_id=$1 ORDER BY id`, [app.customer_id]),
-    q(`SELECT id, nickname FROM slf_bank_account WHERE active AND allow_disbursement ORDER BY nickname`),
+    q(`SELECT a.id, a.nickname FROM slf_bank_account a
+        WHERE a.active AND a.allow_disbursement
+          AND (NOT EXISTS (SELECT 1 FROM slf_bank_account_branch ab WHERE ab.account_id = a.id)
+               OR EXISTS (SELECT 1 FROM slf_bank_account_branch ab
+                           WHERE ab.account_id = a.id AND ab.branch_id = $1))
+        ORDER BY a.nickname`, [actor.actingBranchId]),
     one(`SELECT value FROM app_setting WHERE key='valuer2_threshold_paise'`),
     q(`SELECT id, kind FROM metal WHERE enabled ORDER BY id`),
   ]);
