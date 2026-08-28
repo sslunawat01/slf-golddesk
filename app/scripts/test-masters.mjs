@@ -25,11 +25,19 @@ no("GST of 200% is refused",
 
 console.log("\n§2 A branch code is forever — it is printed into every loan number");
 ok("a two-digit code is fine",
-  validBranch({ code: "04", name: "B4 Sinnar", entityId: 1, existingCodes: ["01", "02", "03"] }));
+  validBranch({ code: "04", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: ["01", "02", "03"] }));
 no("a taken code is refused",
   validBranch({ code: "01", name: "Dup", entityId: 1, existingCodes: ["01"] }), "already taken");
 no("letters in the code are refused",
-  validBranch({ code: "B4", name: "B4", entityId: 1, existingCodes: [] }), "2 or 3 digits");
+  validBranch({ code: "B4X", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }), "exactly 2");
+ok("a letter+digit code like b4 is welcome now (D-C)",
+  validBranch({ code: "b4", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }));
+eq("the code is stored uppercase",
+  validBranch({ code: "b4", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }).code, "B4");
+no("a branch without email is refused (№8 — all fields compulsory)",
+  validBranch({ code: "04", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }), "email");
+no("a branch without coordinates is refused (№8)",
+  validBranch({ code: "04", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", longitude: 74.0, existingCodes: [] }), "latitude");
 no("a branch must belong to an entity",
   validBranch({ code: "04", name: "B4 Sinnar", existingCodes: [] }), "entity");
 

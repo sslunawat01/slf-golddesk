@@ -44,15 +44,32 @@ export function validCharge(c = {}) {
  */
 export function validBranch(b = {}) {
   const problems = [];
-  const code = String(b.code || "").trim();
-  if (!/^[0-9]{2,3}$/.test(code))
-    problems.push("Branch code must be 2 or 3 digits — it is printed into every loan number");
-  if ((b.existingCodes || []).includes(code))
+  // D-C (28 Aug 2026): exactly 2 characters, letters or digits, uppercase.
+  const code = String(b.code || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{2}$/.test(code))
+    problems.push("Branch code must be exactly 2 letters or digits — it is printed into every loan number");
+  if ((b.existingCodes || []).map(c => String(c).toUpperCase()).includes(code))
     problems.push(`Branch code ${code} is already taken`);
   if (!String(b.name || "").trim() || String(b.name).trim().length < 3)
     problems.push("Give the branch a name of at least 3 characters");
-  if (!Number(b.entityId)) problems.push("Choose which entity the branch belongs to");
-  return { ok: problems.length === 0, problems };
+  if (!Number(b.entityId) && !b.isEdit) problems.push("Choose which entity the branch belongs to");
+  // №7+№8: contact and location, all compulsory on every save
+  const phone = String(b.phone || "").replace(/\D/g, "");
+  if (!/^[6-9]\d{9}$/.test(phone)) problems.push("Phone 1 must be a 10-digit mobile/landline-style number");
+  const phone2 = String(b.phone2 || "").replace(/\D/g, "");
+  if (!/^\d{10}$/.test(phone2)) problems.push("Phone 2 is compulsory — 10 digits");
+  const email = String(b.email || "").trim().toLowerCase();
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) problems.push("Enter a valid branch email address");
+  const address = String(b.address || "").trim();
+  if (address.length < 10) problems.push("Write the full branch address — at least 10 characters");
+  const latitude = Number(b.latitude), longitude = Number(b.longitude);
+  if (!(latitude >= -90 && latitude <= 90) || b.latitude === "" || b.latitude == null)
+    problems.push("Latitude is compulsory — a number between -90 and 90 (e.g. 19.9975)");
+  if (!(longitude >= -180 && longitude <= 180) || b.longitude === "" || b.longitude == null)
+    problems.push("Longitude is compulsory — a number between -180 and 180 (e.g. 73.7898)");
+  return { ok: problems.length === 0, problems,
+    code, phone, phone2, email, address, latitude, longitude,
+    name: String(b.name || "").trim(), printName: String(b.printName || "").trim() || null };
 }
 
 // ————————————————————————— schemes —————————————————————————

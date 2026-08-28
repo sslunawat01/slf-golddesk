@@ -7,12 +7,13 @@ const I = { width: "100%", border: "1px solid #cfc9ba", borderRadius: 10, paddin
   height: 42, fontSize: 14, background: "#fff" };
 
 const EMPTY = { id: null, entityId: "", code: "", name: "", printName: "", phone: "",
-  addressLine: "", active: true };
+  phone2: "", email: "", address: "", latitude: "", longitude: "", active: true };
 
 export default function BranchesTab() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [form, setForm] = useState(null);
+  const [find, setFind] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState(null);
   const [safes, setSafes] = useState([]);
@@ -57,9 +58,15 @@ export default function BranchesTab() {
     <>
       {note && <div style={{ marginBottom: 12 }}><span className="chip warn">{note}</span></div>}
 
-      {data.canEdit && !form && (
-        <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
-          <button className="btn" onClick={() => setForm({ ...EMPTY })}>+ Add branch</button>
+      {!form && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginBottom: 10 }}>
+          <input value={find} onChange={e => setFind(e.target.value)}
+            placeholder="🔍 Find branch — code, name, email"
+            style={{ flex: "1 1 220px", maxWidth: 340, height: 40, border: "1px solid #ddd8ca",
+              borderRadius: 10, padding: "0 13px", fontSize: 13.5, outline: "none",
+              background: "#fff" }} />
+          {data.canEdit &&
+            <button className="btn" onClick={() => setForm({ ...EMPTY })}>+ Add branch</button>}
         </div>)}
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 14 }}>
@@ -70,7 +77,10 @@ export default function BranchesTab() {
               <span className="chip mut mono">{e.code}</span>
             </div>
             <div style={{ marginTop: 12, display: "grid", gap: 8 }}>
-              {data.branches.filter(b => b.entity_id === e.id).map(b => (
+              {data.branches.filter(b => b.entity_id === e.id)
+                .filter(b => !find.trim() || [b.code, b.name, b.print_name, b.email]
+                  .some(x => String(x || "").toLowerCase().includes(find.trim().toLowerCase())))
+                .map(b => (
                 <div key={b.id} style={{ display: "flex", justifyContent: "space-between",
                   alignItems: "center", gap: 10, borderTop: "1px solid var(--line)", paddingTop: 8,
                   opacity: b.active ? 1 : .45 }}>
@@ -120,7 +130,10 @@ export default function BranchesTab() {
                     <button className="btn ghost" style={{ padding: "6px 12px", fontSize: 12.5 }}
                       onClick={() => setForm({ id: b.id, entityId: b.entity_id, code: b.code,
                         name: b.name, printName: b.print_name || "", phone: b.phone || "",
-                        addressLine: b.address_json?.line1 || "", active: b.active })}>Edit</button>
+                        address: b.address_json?.text || b.address_json?.line1 || "",
+                        phone2: b.phone2 || "", email: b.email || "",
+                        latitude: b.latitude ?? "", longitude: b.longitude ?? "",
+                        active: b.active })}>Edit</button>
                   )}
                 </div>
               ))}
@@ -168,29 +181,67 @@ export default function BranchesTab() {
           <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
             textTransform: "uppercase", color: "var(--mut)", marginBottom: 12 }}>
             {form.id ? `Edit branch ${form.code}` : "New branch"}</div>
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em",
+            textTransform: "uppercase", color: "var(--mut)", margin: "2px 0 8px" }}>Identity</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
-            {!form.id && (<>
+            {!form.id && (
               <div><label style={F}>Entity *</label>
                 <select style={I} value={form.entityId} onChange={set("entityId")}>
                   <option value="">— select —</option>
                   {data.entities.map(e => <option key={e.id} value={e.id}>{e.legal_name}</option>)}
-                </select></div>
-              <div><label style={F}>Branch code * — 2–3 digits, permanent</label>
-                <input style={{ ...I, fontFamily: "ui-monospace,monospace" }} value={form.code}
-                  onChange={e => setForm({ ...form, code: e.target.value.replace(/\D/g, "").slice(0, 3) })}
-                  placeholder="e.g. 04" />
-                <div className="hint">printed into every loan number this branch ever issues — it can never change</div></div>
-            </>)}
+                </select></div>)}
+            <div><label style={F}>Branch code * — 2 letters/digits</label>
+              <input style={{ ...I, fontFamily: "ui-monospace,monospace", textTransform: "uppercase" }}
+                value={form.code}
+                onChange={e => setForm({ ...form,
+                  code: e.target.value.replace(/[^0-9a-zA-Z]/g, "").toUpperCase().slice(0, 2) })}
+                placeholder="e.g. 04 or B4" />
+              {form.id
+                ? <div className="hint">changing it: numbers issued from that moment use the new
+                    code, counters continue, old numbers stay as printed</div>
+                : <div className="hint">printed into every document number this branch issues</div>}</div>
             <div><label style={F}>Name *</label>
               <input style={I} value={form.name} onChange={set("name")} placeholder="e.g. B4 Sinnar" /></div>
-            <div><label style={F}>Print name</label>
+            <div><label style={F}>Print name — receipts show this</label>
               <input style={I} value={form.printName} onChange={set("printName")}
-                placeholder="as it appears on receipts" /></div>
-            <div><label style={F}>Phone</label>
-              <input style={I} value={form.phone} onChange={set("phone")} inputMode="tel" /></div>
-            <div><label style={F}>Address</label>
-              <input style={I} value={form.addressLine} onChange={set("addressLine")}
-                placeholder="one line" /></div>
+                placeholder="defaults to the name" /></div>
+          </div>
+
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em",
+            textTransform: "uppercase", color: "var(--mut)", margin: "16px 0 8px" }}>Contact — all compulsory</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))", gap: 12 }}>
+            <div><label style={F}>Phone 1 *</label>
+              <input style={{ ...I, fontFamily: "ui-monospace,monospace" }} value={form.phone}
+                onChange={e => setForm({ ...form, phone: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                inputMode="tel" placeholder="98220 12345" /></div>
+            <div><label style={F}>Phone 2 *</label>
+              <input style={{ ...I, fontFamily: "ui-monospace,monospace" }} value={form.phone2}
+                onChange={e => setForm({ ...form, phone2: e.target.value.replace(/\D/g, "").slice(0, 10) })}
+                inputMode="tel" placeholder="0253 231234" /></div>
+            <div><label style={F}>Branch email *</label>
+              <input style={I} type="email" value={form.email} onChange={set("email")}
+                placeholder="bhagur@slunawat.in" autoCapitalize="none" /></div>
+          </div>
+
+          <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em",
+            textTransform: "uppercase", color: "var(--mut)", margin: "16px 0 8px" }}>Address &amp; location — all compulsory</div>
+          <div><label style={F}>Full address *</label>
+            <textarea rows={3} value={form.address} onChange={set("address")}
+              placeholder="Shop no, building, road, area, city, PIN"
+              style={{ ...I, height: "auto", minHeight: 84, padding: "10px 13px",
+                resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} /></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(200px,1fr))",
+            gap: 12, marginTop: 12 }}>
+            <div><label style={F}>Latitude * — e.g. 19.9975</label>
+              <input style={{ ...I, fontFamily: "ui-monospace,monospace" }} value={form.latitude}
+                onChange={e => setForm({ ...form,
+                  latitude: e.target.value.replace(/[^0-9.\-]/g, "").slice(0, 11) })}
+                inputMode="decimal" placeholder="19.997500" /></div>
+            <div><label style={F}>Longitude * — e.g. 73.7898</label>
+              <input style={{ ...I, fontFamily: "ui-monospace,monospace" }} value={form.longitude}
+                onChange={e => setForm({ ...form,
+                  longitude: e.target.value.replace(/[^0-9.\-]/g, "").slice(0, 11) })}
+                inputMode="decimal" placeholder="73.789800" /></div>
           </div>
           {form.id && (
             <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 12,

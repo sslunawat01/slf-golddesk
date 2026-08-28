@@ -22,7 +22,7 @@ export async function GET() {
     `SELECT id, code, legal_name, series::text AS series, active FROM entity ORDER BY id`);
   const branches = await q(
     `SELECT b.id, b.entity_id, b.code, b.name, b.print_name, b.is_ho, b.phone,
-            b.address_json, b.active,
+            b.address_json, b.phone2, b.email, b.latitude, b.longitude, b.active,
             (SELECT count(*) FROM safe s WHERE s.branch_id=b.id AND s.active)::int AS safes,
             (SELECT count(*) FROM scheme_branch sb JOIN scheme_version sv ON sv.id=sb.scheme_version_id
               WHERE sb.branch_id=b.id AND sv.status='published')::int AS schemes,
@@ -41,13 +41,23 @@ export async function POST(req) {
     const b = await req.json().catch(() => ({}));
 
     // —————————— edit ——————————
-    // The code is never editable: it is printed into every loan number ever
-    // issued at the branch, so changing it would orphan the whole book.
+    // D-C (28 Aug 2026): the code IS editable now. On change, this financial
+    // year's number-series prefixes refresh so documents issued from this
+    // moment carry the new code; counters continue; old numbers stay forever.
     if (b.id) {
       const cur = await one(`SELECT * FROM branch WHERE id=$1`, [b.id]);
       if (!cur) return NextResponse.json({ ok: false, reason: "Branch not found" }, { status: 404 });
-      const name = String(b.name || "").trim();
-      if (name.length < 3)
+      const others = (await q(`SELECT code FROM branch WHERE id <> $1`, [b.id])).map(r => r.code);
+      const v = cur.is_ho
+        ? { ok: true, code: cur.code, name: String(b.name || "").trim(),
+            printName: String(b.printName || "").trim() || null,
+            phone: String(b.phone || "").replace(/\D/g, ""), phone2: String(b.phone2 || "").replace(/\D/g, ""),
+            email: String(b.email || "").trim().toLowerCase(), address: String(b.address || "").trim(),
+            latitude: Number(b.latitude) || null, longitude: Number(b.longitude) || null }
+        : validBranch({ ...b, isEdit: true, existingCodes: others });
+      if (!v.ok) return NextResponse.json({ ok: false, reason: v.problems[0], problems: v.problems }, { status: 400 });
+      const name = v.name;
+      if (!name || name.length < 3)
         return NextResponse.json({ ok: false, reason: "Give the branch a name of at least 3 characters" }, { status: 400 });
 
       if (b.active === false) {
@@ -59,20 +69,42 @@ export async function POST(req) {
             { status: 409 });
       }
 
+      const codeChanged = !cur.is_ho && v.code !== cur.code;
       await tx(async (cl) => {
         await cl.query(
-          `UPDATE branch SET name=$2, print_name=$3, phone=$4, address_json=$5, active=$6, updated_by=$7
+          `UPDATE branch SET code=$2, name=$3, print_name=$4, phone=$5, phone2=$6, email=$7,
+                  address_json=$8, latitude=$9, longitude=$10, active=$11, updated_by=$12
            WHERE id=$1`,
-          [b.id, name, String(b.printName || "").trim() || null,
-           String(b.phone || "").trim() || null,
-           JSON.stringify({ line1: String(b.addressLine || "").trim() }),
-           b.active !== false, actor.employeeId]);
+          [b.id, cur.is_ho ? cur.code : v.code, name, v.printName, v.phone || null,
+           v.phone2 || null, v.email || null,
+           JSON.stringify({ text: v.address, line1: v.address }),
+           v.latitude, v.longitude, b.active !== false, actor.employeeId]);
+        if (codeChanged) {
+          // Refresh THIS financial year's prefixes by swapping ONLY the branch
+          // code inside each existing prefix — custom tails (e.g. the live
+          // '01A67' loan style) survive untouched. Counters continue.
+          await cl.query(
+            `UPDATE number_series SET prefix = CASE
+                WHEN doc_type = 'loan' AND prefix LIKE $3 || '%'
+                  THEN $4 || substr(prefix, length($3) + 1)
+                WHEN position('-' || $3 || '-' IN prefix) > 0
+                  THEN overlay(prefix PLACING '-' || $4 || '-'
+                         FROM position('-' || $3 || '-' IN prefix)
+                          FOR length($3) + 2)
+                ELSE prefix END
+              WHERE branch_id = $1 AND fy_label = $2`,
+            [b.id, fy(), cur.code, v.code]);
+        }
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "branch", entityId: Number(b.id), action: "branch_updated",
-          before: { name: cur.name, active: cur.active },
-          after: { name, active: b.active !== false } });
+          before: { code: cur.code, name: cur.name, active: cur.active },
+          after: { code: cur.is_ho ? cur.code : v.code, name, active: b.active !== false,
+                   seriesPrefixRefreshed: codeChanged } });
       }, { entityIds: "ALL" });
-      return NextResponse.json({ ok: true, id: Number(b.id) });
+      return NextResponse.json({ ok: true, id: Number(b.id),
+        note: codeChanged
+          ? `Code changed ${cur.code} → ${v.code}. Numbers issued from now use ${v.code}; counters continue; old numbers stay as printed.`
+          : undefined });
     }
 
     // —————————— create ——————————
@@ -85,11 +117,12 @@ export async function POST(req) {
 
     const out = await tx(async (cl) => {
       const { rows: [r] } = await cl.query(
-        `INSERT INTO branch (entity_id, code, name, print_name, phone, address_json, is_ho, active, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,false,true,$7) RETURNING id`,
-        [b.entityId, String(b.code).trim(), String(b.name).trim(),
-         String(b.printName || "").trim() || null, String(b.phone || "").trim() || null,
-         JSON.stringify({ line1: String(b.addressLine || "").trim() }), actor.employeeId]);
+        `INSERT INTO branch (entity_id, code, name, print_name, phone, phone2, email,
+           address_json, latitude, longitude, is_ho, active, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,true,$11) RETURNING id`,
+        [b.entityId, v.code, v.name, v.printName, v.phone, v.phone2, v.email,
+         JSON.stringify({ text: v.address, line1: v.address }),
+         v.latitude, v.longitude, actor.employeeId]);
       // Gapless number series for every document type this branch will issue.
       await cl.query(`SELECT ensure_series($1, $2, d, $3)
                         FROM unnest(ARRAY['loan','receipt','packet','application','noc']::series_doc[]) AS d`,
