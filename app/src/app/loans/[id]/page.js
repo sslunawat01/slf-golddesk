@@ -41,7 +41,7 @@ export default async function LoanProfile({ params }) {
            FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
           WHERE lc.loan_id = $1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [id]),
       q(`SELECT r.id, r.receipt_no, r.business_date, r.amount_paise, r.mode::text, r.utr,
-                r.paid_by, r.closes_loan, e.full_name AS received_by_name, sa.nickname AS slf_account,
+                r.paid_by, r.closes_loan, e.full_name AS received_by_name, sa.nickname AS slf_account
            FROM receipt r JOIN employee e ON e.id = r.received_by
            LEFT JOIN slf_bank_account sa ON sa.id = r.slf_bank_account_id
           WHERE r.loan_id = $1 ORDER BY r.business_date, r.id`, [id]),
