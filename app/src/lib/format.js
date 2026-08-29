@@ -60,3 +60,33 @@ export function titleCaseName(v) {
       .join(""))
     .join(" ");
 }
+
+
+/**
+ * E17 №3 (owner, 29 Aug 2026): amounts must read like a person says them —
+ * Indian system, lakh and crore. Whole rupees only (paise ignored for speech).
+ * rupeesInWords(2000000) → "twenty lakh"
+ */
+const ONES = ["", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+  "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen"];
+const TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"];
+function twoDigits(n) {
+  return n < 20 ? ONES[n] : (TENS[Math.floor(n / 10)] + (n % 10 ? " " + ONES[n % 10] : ""));
+}
+function threeDigits(n) {
+  const h = Math.floor(n / 100), r = n % 100;
+  return [(h ? ONES[h] + " hundred" : ""), twoDigits(r)].filter(Boolean).join(" ");
+}
+export function rupeesInWords(rupees) {
+  let n = Math.floor(Math.abs(Number(rupees) || 0));
+  if (n === 0) return "zero";
+  const parts = [];
+  const crore = Math.floor(n / 10000000); n %= 10000000;
+  const lakh = Math.floor(n / 100000); n %= 100000;
+  const thousand = Math.floor(n / 1000); n %= 1000;
+  if (crore) parts.push((crore > 99 ? rupeesInWords(crore) : twoDigits(crore)) + " crore");
+  if (lakh) parts.push(twoDigits(lakh) + " lakh");
+  if (thousand) parts.push(twoDigits(thousand) + " thousand");
+  if (n) parts.push(threeDigits(n));
+  return parts.join(" ");
+}

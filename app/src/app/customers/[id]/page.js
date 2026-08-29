@@ -28,7 +28,7 @@ export default async function Customer360({ params, searchParams }) {
     || can(actor, "edit_customer", { need: "full" }).ok);
   const canCollect = actor && can(actor, "collect", { need: "full" }).ok;
 
-  const [photo, addresses, docs, nominee, banks, loans, closed] = await Promise.all([
+  const [ photo, addresses, docs, nominee, banks, loans, pendingApps, closed ] = await Promise.all([
     one(`SELECT f.s3_key, f.thumb_s3_key FROM customer_photo p JOIN file_object f ON f.id = p.file_id
           WHERE p.customer_id = $1 AND p.is_current ORDER BY p.captured_at DESC LIMIT 1`, [id]),
     q(`SELECT kind, line1, line2, pincode, area, taluka, district, state FROM customer_address
@@ -52,6 +52,11 @@ export default async function Customer360({ params, searchParams }) {
          FROM loan l JOIN scheme_version sv ON sv.id = l.scheme_version_id
          JOIN scheme s ON s.id = sv.scheme_id
         WHERE l.customer_id = $1 AND l.status = 'active' ORDER BY l.disbursed_at`, [id]),
+    q(`SELECT a.id, a.app_no, a.status::text, a.requested_paise, a.created_at::date::text AS made_on,
+              a.branch_id, br.code AS branch_code
+         FROM loan_application a JOIN branch br ON br.id = a.branch_id
+        WHERE a.customer_id = $1 AND a.status IN ('draft','appraised','pending_ho','approved')
+        ORDER BY a.id DESC`, [id]),
     q(`SELECT l.loan_no, l.principal_paise, l.closed_at, l.status, s.code AS scheme
          FROM loan l JOIN scheme_version sv ON sv.id = l.scheme_version_id
          JOIN scheme s ON s.id = sv.scheme_id
@@ -100,6 +105,9 @@ export default async function Customer360({ params, searchParams }) {
         <span className="chip ok">customer created · KYC filed today</span></div>}
       {sp?.edited && <div style={{ marginBottom: 14 }}>
         <span className="chip ok">Saved ✓ — customer details updated</span></div>}
+      {sp?.submitted && <div style={{ marginBottom: 14 }}>
+        <span className="chip ok">Saved ✓ — the file is below in “Applications in progress”,
+          waiting for another person to disburse</span></div>}
       {sp?.err && <div style={{ marginBottom: 14 }}>
         <span className="chip bad">{sp.err}</span></div>}
 
@@ -125,10 +133,15 @@ export default async function Customer360({ params, searchParams }) {
               <div style={{ fontWeight: 900, fontSize: 18, lineHeight: 1.25 }}>{c.fullName}</div>
               <div className="mono" style={{ color: "var(--mut)", fontSize: 13, marginTop: 3 }}>
                 {c.cust_no}<br />{c.mobile}</div>
-              {mayEditCust && (
-                <a href={`/customers/${c.id}/edit`} className="btn ghost"
-                  style={{ marginTop: 8, display: "inline-block", padding: "7px 14px",
-                    fontSize: 12.5, textDecoration: "none" }}>✎ Edit customer</a>)}
+              <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                <a href={`/customers/${c.id}/edit?view=1`} className="btn ghost"
+                  style={{ padding: "7px 14px", fontSize: 12.5, textDecoration: "none" }}>
+                  👁 View</a>
+                {mayEditCust && (
+                  <a href={`/customers/${c.id}/edit`} className="btn ghost"
+                    style={{ padding: "7px 14px", fontSize: 12.5, textDecoration: "none" }}>
+                    ✎ Edit customer</a>)}
+              </div>
             </div>
           </div>
 
@@ -168,6 +181,37 @@ export default async function Customer360({ params, searchParams }) {
           <div className="card">
             <K>Active loans</K>
             {loans.length === 0 && <div style={{ color: "var(--mut)", fontSize: 14 }}>No active loans.</div>}
+            {/* E16 №2 (owner, 29 Aug 2026): files on their way — the 360 must
+                never pretend an approved-but-undisbursed loan doesn't exist */}
+            {pendingApps.length > 0 && (
+              <div style={{ margin: "10px 0 14px", border: "1px dashed #cfc9ba", borderRadius: 12,
+                padding: "10px 14px", background: "#fbfaf5" }}>
+                <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+                  textTransform: "uppercase", color: "var(--mut)", marginBottom: 4 }}>
+                  Applications in progress — not yet disbursed</div>
+                {pendingApps.map(a => {
+                  // №1 (owner, 29 Aug 2026): the pledge screen opens only the
+                  // acting branch's files — link only when it can succeed
+                  const mine = Number(a.branch_id) === Number(actor.actingBranchId);
+                  const inner = (<>
+                    <span className="mono" style={{ fontSize: 12.5 }}>{a.app_no}</span>
+                    <span className={"chip " + (a.status === "approved" ? "ok"
+                      : a.status === "pending_ho" ? "warn" : "mut")} style={{ fontSize: 11 }}>
+                      {a.status === "pending_ho" ? "at head office" : a.status}</span>
+                    <b className="mono" style={{ fontSize: 13.5 }}>
+                      ₹{Math.round(Number(a.requested_paise || 0) / 100).toLocaleString("en-IN")}</b>
+                    <span style={{ color: "var(--mut)", fontSize: 12 }}>
+                      · {a.made_on} · {mine ? "open →"
+                        : `at ${a.branch_code} — switch branch to open`}</span>
+                  </>);
+                  return mine
+                    ? <a key={a.id} href={`/pledge/${a.id}`} style={{ display: "flex", gap: 10,
+                        alignItems: "center", flexWrap: "wrap", padding: "7px 0",
+                        textDecoration: "none", color: "inherit" }}>{inner}</a>
+                    : <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "center",
+                        flexWrap: "wrap", padding: "7px 0", opacity: .75 }}>{inner}</div>;
+                })}
+              </div>)}
             {loans.map(l => (
               <div key={l.id} style={{ borderTop: "1px solid var(--line)", padding: "12px 0",
                 display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>

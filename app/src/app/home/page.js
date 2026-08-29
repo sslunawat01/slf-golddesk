@@ -18,6 +18,20 @@ export default async function Home() {
   const rate = await one(`SELECT base_paise, rate_date FROM rate_in_force(1, CURRENT_DATE)`);
   const canDisburse = can(actor, "disburse", { need: "full" }).ok;
   // approved, not yet disbursed, at the acting branch — with who approved it
+  // E15 №5 (owner, 29 Aug 2026): files the disburse desk returned — the maker
+  // must SEE them, or a sent-back loan silently dies in a drawer.
+  const sentBackQ = await q(
+    `SELECT la.id, la.app_no, la.requested_paise, c.full_name AS cust,
+            h.note, h.at AS sent_at, e.full_name AS sent_by
+       FROM loan_application la
+       JOIN customer c ON c.id = la.customer_id
+       JOIN LATERAL (SELECT note, at, by_employee FROM loan_state_history
+                      WHERE application_id = la.id
+                      ORDER BY id DESC LIMIT 1) h ON h.note LIKE 'sent back for changes:%'
+       JOIN employee e ON e.id = h.by_employee
+      WHERE la.branch_id = $1 AND la.status = 'appraised'
+      ORDER BY h.at DESC`, [actor.actingBranchId]);
+
   const readyQ = await q(
     `SELECT la.id, la.app_no, la.requested_paise, c.full_name AS cust, s.code AS scheme,
             h.by_employee AS approver_id, e.full_name AS approver, h.at AS approved_at
@@ -77,6 +91,31 @@ export default async function Home() {
         <p style={{ color: "var(--mut)", fontSize: 13.5, margin: "8px 0 20px" }}>
           Search is the front door — new pledge, payment, renewal, enquiry, everything.
         </p>
+
+      {sentBackQ.length > 0 && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: "5px solid #e8a020" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+            textTransform: "uppercase", color: "#a06407" }}>
+            ↩ Sent back — needs correction ({sentBackQ.length})</div>
+          {sentBackQ.map((r, i) => (
+            <a key={r.id} href={`/pledge/${r.id}`} style={{ textDecoration: "none",
+              color: "inherit", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
+              padding: "11px 2px", borderTop: i ? "1px solid var(--line)" : "1px solid transparent",
+              marginTop: i ? 0 : 6 }}>
+              <div style={{ minWidth: 0, flex: "1 1 240px" }}>
+                <b>{r.cust}</b>
+                <span className="mono" style={{ color: "var(--mut)", fontSize: 12,
+                  marginLeft: 8 }}>{r.app_no}</span>
+                <div style={{ color: "#a06407", fontSize: 12.5, marginTop: 2, fontWeight: 700 }}>
+                  “{String(r.note).replace(/^sent back for changes:\s*/, "")}”
+                  <span style={{ color: "var(--mut)", fontWeight: 400 }}>
+                    {" "}— {r.sent_by}, {String(r.sent_at).slice(0, 10)}</span></div>
+              </div>
+              <b className="mono" style={{ fontSize: 15 }}>
+                ₹{Math.round(Number(r.requested_paise) / 100).toLocaleString("en-IN")}</b>
+              <span className="chip warn" style={{ fontSize: 11.5 }}>open & fix →</span>
+            </a>))}
+        </div>)}
 
       {readyQ.length > 0 && (
         <div className="card" style={{ marginBottom: 16, borderLeft: "5px solid var(--brass)" }}>

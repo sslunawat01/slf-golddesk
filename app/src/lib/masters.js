@@ -55,10 +55,16 @@ export function validBranch(b = {}) {
     problems.push("Give the branch a name of at least 3 characters");
   if (!Number(b.entityId) && !b.isEdit) problems.push("Choose which entity the branch belongs to");
   // №7+№8: contact and location, all compulsory on every save
+  // E15 №3 (owner, 29 Aug 2026): branches keep landlines — the old rule only
+  // took mobiles, so legacy rows (0253-…) loaded into the edit form but could
+  // never save again. Mobiles: 10 digits starting 6-9. Landlines: leading 0
+  // with STD code, 10-11 digits total.
   const phone = String(b.phone || "").replace(/\D/g, "");
-  if (!/^[6-9]\d{9}$/.test(phone)) problems.push("Phone 1 must be a 10-digit mobile/landline-style number");
+  if (!/^([6-9]\d{9}|0\d{9,10})$/.test(phone))
+    problems.push("Phone 1 must be a 10-digit mobile or an STD landline starting 0");
   const phone2 = String(b.phone2 || "").replace(/\D/g, "");
-  if (!/^\d{10}$/.test(phone2)) problems.push("Phone 2 is compulsory — 10 digits");
+  if (!/^([6-9]\d{9}|0\d{9,10})$/.test(phone2))
+    problems.push("Phone 2 is compulsory — a 10-digit mobile or an STD landline starting 0");
   const email = String(b.email || "").trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) problems.push("Enter a valid branch email address");
   const address = String(b.address || "").trim();

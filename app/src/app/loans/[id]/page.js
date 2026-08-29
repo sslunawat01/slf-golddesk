@@ -41,8 +41,9 @@ export default async function LoanProfile({ params }) {
            FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
           WHERE lc.loan_id = $1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [id]),
       q(`SELECT r.id, r.receipt_no, r.business_date, r.amount_paise, r.mode::text, r.utr,
-                r.paid_by, r.closes_loan, e.full_name AS received_by_name
+                r.paid_by, r.closes_loan, e.full_name AS received_by_name, sa.nickname AS slf_account,
            FROM receipt r JOIN employee e ON e.id = r.received_by
+           LEFT JOIN slf_bank_account sa ON sa.id = r.slf_bank_account_id
           WHERE r.loan_id = $1 ORDER BY r.business_date, r.id`, [id]),
       q(`SELECT ra.receipt_id, ra.bucket::text, sum(ra.amount_paise)::bigint AS amt
            FROM receipt_appropriation ra JOIN receipt r ON r.id = ra.receipt_id
@@ -127,7 +128,8 @@ export default async function LoanProfile({ params }) {
     ...rcp.map(r => ({ kind: "receipt", date: r.business_date,
       label: `Receipt ${r.receipt_no}${r.closes_loan ? " — LOAN CLOSED" : ""}`,
       amt: Number(r.amount_paise), split: splitOf(r.id),
-      ref: [r.mode.toUpperCase(), r.utr, r.paid_by ? `paid by ${r.paid_by}` : null,
+      ref: [r.mode.toUpperCase() + (r.slf_account ? ` → ${r.slf_account}` : ""), r.utr,
+            r.paid_by ? `paid by ${r.paid_by}` : null,
             `by ${r.received_by_name}`].filter(Boolean).join(" · ") })),
     ...lch.map(c => ({ kind: "charge", date: c.added_on,
       label: c.charge_name, amt: Number(c.total_paise), ref: "levied on the loan" })),

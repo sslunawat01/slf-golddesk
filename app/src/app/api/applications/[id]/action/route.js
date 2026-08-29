@@ -183,6 +183,11 @@ export async function POST(req, { params }) {
   }
 
   if (action === "disburse") {
+    // №2 (owner, 29 Aug 2026): the creator never disburses their own file —
+    // this extends maker≠checker beyond the approver (E11's DB trigger).
+    if (Number(app.created_by) === Number(actor.employeeId))
+      return NextResponse.json({ ok: false,
+        reason: "You created this file — another person must disburse it" }, { status: 403 });
     if (!can(actor, "disburse", { need: "full" }).ok)
       return NextResponse.json({ ok: false, reason: "You may not disburse" }, { status: 403 });
     // Maker ≠ checker (owner, 28 Aug 2026): the approver never disburses.

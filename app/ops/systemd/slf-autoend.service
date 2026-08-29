@@ -1,0 +1,9 @@
+[Unit]
+Description=SLF GoldDesk automatic day-end (23:59 IST, E15 No.8 + No.7 auto-cancel)
+After=network-online.target postgresql.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/slf/app
+ExecStart=/usr/bin/node scripts/auto-daycycle.mjs end

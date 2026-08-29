@@ -18,7 +18,12 @@ export async function PATCH(req, { params }) {
   const app = await one(`SELECT * FROM loan_application WHERE id=$1 AND branch_id=$2`,
     [id, actor.actingBranchId]);
   if (!app) return NextResponse.json({ ok: false, reason: "Application not found" }, { status: 404 });
-  if (!["draft", "appraised"].includes(app.status))
+  // D-E amended (owner, 29 Aug 2026, №10): the CREATOR may edit an approved
+  // file — it drops back to appraised and needs a fresh approval, so the
+  // checker never pays out silent changes. Disbursal (activated) is final.
+  const creatorEditingApproved = app.status === "approved" &&
+    Number(app.created_by) === Number(actor.employeeId);
+  if (!["draft", "appraised"].includes(app.status) && !creatorEditingApproved)
     return NextResponse.json({ ok: false, reason: `This application is ${app.status} and can no longer be edited` }, { status: 409 });
 
   const scheme = body.schemeVersionId
@@ -37,7 +42,15 @@ export async function PATCH(req, { params }) {
       [id, body.schemeVersionId || null, body.requestedPaise ?? null, body.purpose || null,
        body.borrowerPresent ?? null, body.presencePhotoId ?? null, body.coborrowerCustomerId ?? null,
        body.coborrowerPhotoId ?? null, body.valuer1Id ?? null, body.valuer2Id ?? null,
-       (body.items?.length ? "appraised" : app.status), actor.employeeId]);
+       creatorEditingApproved ? "appraised" : (body.items?.length ? "appraised" : app.status),
+       actor.employeeId]);
+
+    if (creatorEditingApproved)
+      await cl.query(
+        `INSERT INTO loan_state_history (application_id, from_state, to_state, by_employee, note)
+         VALUES ($1,'approved','appraised',$2,
+                 'edited by the creator after approval — fresh approval required (D-E amended)')`,
+        [id, actor.employeeId]);
 
     if (Array.isArray(body.documents)) {
       await cl.query(`DELETE FROM application_document WHERE application_id=$1`, [id]);
@@ -74,5 +87,5 @@ export async function PATCH(req, { params }) {
     }
   }, { entityIds: actor.entityIds });
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, deapproved: creatorEditingApproved });
 }

@@ -1,0 +1,9 @@
+[Unit]
+Description=Run SLF automatic day-end daily at 23:59 IST
+
+[Timer]
+OnCalendar=*-*-* 23:59:00 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

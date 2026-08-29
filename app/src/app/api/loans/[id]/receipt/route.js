@@ -37,6 +37,23 @@ export async function POST(req, { params }) {
     if (!MODES.includes(mode))
       return NextResponse.json({ ok: false, reason: "Choose how the customer is paying" }, { status: 400 });
     const u = utrCheck(mode, utr);
+    // №2 (owner, 29 Aug 2026): non-cash money must land somewhere named
+    let slfAccountId = null;
+    if (mode !== "cash") {
+      slfAccountId = Number(body.slfBankAccountId) || null;
+      if (!slfAccountId)
+        return NextResponse.json({ ok: false,
+          reason: "Choose which SLF account received the money" }, { status: 400 });
+      const acc = await one(
+        `SELECT a.id FROM slf_bank_account a
+          WHERE a.id=$1 AND a.active AND a.allow_collection
+            AND (a.scope_all OR EXISTS (SELECT 1 FROM slf_bank_account_branch ab
+                                         WHERE ab.account_id=a.id AND ab.branch_id=$2))`,
+        [slfAccountId, actor.actingBranchId]);
+      if (!acc)
+        return NextResponse.json({ ok: false,
+          reason: "That SLF account cannot take collections for this branch" }, { status: 400 });
+    }
     if (!u.ok) return NextResponse.json({ ok: false, reason: u.reason }, { status: 400 });
     if (amountPaise <= 0)
       return NextResponse.json({ ok: false, reason: "Enter the amount received" }, { status: 400 });
@@ -81,11 +98,11 @@ export async function POST(req, { params }) {
       const { rows: [r] } = await cl.query(
         `INSERT INTO receipt (receipt_no, entity_id, branch_id, loan_id, business_date,
            amount_paise, mode, utr, is_exact_settlement, closes_loan, seals_cycle,
-           engine_version, received_by, paid_by)
-         VALUES ($1,$2,$3,$4,CURRENT_DATE,$5,$6::pay_mode,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+           engine_version, received_by, paid_by, slf_bank_account_id)
+         VALUES ($1,$2,$3,$4,CURRENT_DATE,$5,$6::pay_mode,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id`,
         [receiptNo, pos.loan.entity_id, pos.loan.branch_id, pos.loan.id, amountPaise,
          mode, mode === "cash" ? (utr || null) : utr, isExact, closes,
-         !!receipt.sealsCycle, ENGINE_VERSION, actor.employeeId, paidBy]);
+         !!receipt.sealsCycle, ENGINE_VERSION, actor.employeeId, paidBy, slfAccountId]);
 
       for (const a of rows)
         await cl.query(

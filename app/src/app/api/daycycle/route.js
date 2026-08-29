@@ -145,6 +145,27 @@ export async function POST(req) {
           table: "day_cycle", entityId: Number(dcRow.id), action: "day_end_signed",
           after: { expectedPaise: expected, countedPaise, variancePaise: gate.variancePaise,
                    flows } });
+
+        // E15 №7 (owner, 29 Aug 2026): the day is over — every application not
+        // disbursed dies with it, INCLUDING files waiting at Head Office
+        // (owner's explicit call). Tomorrow starts clean.
+        const { rows: doomed } = await cl.query(
+          `SELECT id, app_no, status FROM loan_application
+            WHERE branch_id=$1 AND status IN ('draft','appraised','pending_ho','approved')
+            FOR UPDATE`, [branchId]);
+        for (const d of doomed) {
+          await cl.query(
+            `UPDATE loan_application SET status='cancelled', updated_at=now(), updated_by=$2
+              WHERE id=$1`, [d.id, actor.employeeId]);
+          await cl.query(
+            `INSERT INTO loan_state_history (application_id, from_state, to_state, by_employee, note)
+             VALUES ($1,$2,'cancelled',$3,'not disbursed by day-end — cancelled automatically (№7)')`,
+            [d.id, d.status, actor.employeeId]);
+        }
+        if (doomed.length)
+          await audit(cl, { employeeId: actor.employeeId, branchId,
+            table: "loan_application", entityId: null, action: "day_end_auto_cancel",
+            after: { count: doomed.length, appNos: doomed.map(x => x.app_no) } });
       }, { entityIds: actor.entityIds });
       return NextResponse.json({ ok: true, variancePaise: gate.variancePaise,
         expectedPaise: expected, countedPaise });

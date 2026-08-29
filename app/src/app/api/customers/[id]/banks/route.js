@@ -30,7 +30,7 @@ export async function POST(req, { params }) {
   if (!cust) return NextResponse.json({ ok: false, reason: "Customer not found" }, { status: 404 });
 
   const b = await req.json().catch(() => ({}));
-  const skipFieldChecks = b.action === "verify";   // verify carries only an id
+  const skipFieldChecks = ["verify", "proof"].includes(b.action);   // these carry only ids
   const problems = [];
   const accountNo = String(b.accountNo || "").replace(/\s/g, "");
   const ifsc = String(b.ifsc || "").trim().toUpperCase();
@@ -52,13 +52,36 @@ export async function POST(req, { params }) {
       await tx(async (cl) => {
         await cl.query(
           `UPDATE customer_bank_account
-              SET verify_method = CASE WHEN cheque_file_id IS NOT NULL
-                                       THEN 'cheque_photo' ELSE 'manual' END,
+              SET verify_method = (CASE WHEN cheque_file_id IS NOT NULL
+                                        THEN 'cheque_photo' ELSE 'manual' END)::verify_method,
                   verified_at=now() WHERE id=$1`, [cur.id]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "customer_bank_account", entityId: cur.id, action: "bank_verified_manual",
           after: { by: actor.employeeId, method: "manual",
                    note: "operator confirmed proof on screen — W9, pre penny-drop" } });
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (b.action === "proof") {
+      // E15 №4 (owner, 29 Aug 2026): attach or replace the cancelled-cheque /
+      // passbook photo straight from the account row — no edit ceremony.
+      const cur = await one(
+        `SELECT * FROM customer_bank_account WHERE id=$1 AND customer_id=$2`, [b.id, id]);
+      if (!cur) return NextResponse.json({ ok: false, reason: "Account not found" }, { status: 404 });
+      const fileId = Number(b.chequeFileId) || null;
+      if (!fileId)
+        return NextResponse.json({ ok: false, reason: "Upload the photo first" }, { status: 400 });
+      await tx(async (cl) => {
+        await cl.query(
+          `UPDATE customer_bank_account SET cheque_file_id=$2,
+                  verify_method = CASE WHEN verified_at IS NOT NULL
+                                       THEN 'cheque_photo'::verify_method ELSE verify_method END
+            WHERE id=$1`, [cur.id, fileId]);
+        await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+          table: "customer_bank_account", entityId: cur.id,
+          action: cur.cheque_file_id ? "bank_proof_replaced" : "bank_proof_attached",
+          after: { fileId } });
       });
       return NextResponse.json({ ok: true });
     }

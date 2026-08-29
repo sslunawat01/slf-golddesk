@@ -30,6 +30,10 @@ no("a taken code is refused",
   validBranch({ code: "01", name: "Dup", entityId: 1, existingCodes: ["01"] }), "already taken");
 ok("a three-character code like B4X is welcome now (E14 №2, owner 28 Aug 2026)",
   validBranch({ code: "B4X", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }));
+ok("a Nashik landline with STD code saves again (E15 №3, owner 29 Aug 2026)",
+  validBranch({ code: "01", name: "B1 Bhagur", entityId: 1, phone: "0253-000001", phone2: "9822012345", email: "b1@slf.in", address: "Main Rd, Bhagur, Nashik 422502", latitude: 19.85, longitude: 74.0, existingCodes: [] }));
+no("a seven-digit number is still refused",
+  validBranch({ code: "01", name: "B1 Bhagur", entityId: 1, phone: "2334455", phone2: "9822012345", email: "b1@slf.in", address: "Main Rd, Bhagur, Nashik 422502", latitude: 19.85, longitude: 74.0, existingCodes: [] }), "phone 1");
 no("four characters are refused",
   validBranch({ code: "B4XX", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }), "2 or 3");
 ok("a letter+digit code like b4 is welcome now (D-C)",

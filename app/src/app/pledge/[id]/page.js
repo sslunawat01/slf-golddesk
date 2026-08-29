@@ -2,6 +2,7 @@ import Shell from "@/components/Shell.js";
 import { currentActor } from "@/lib/session.js";
 import { can, sanctionAuthority } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
+import { viewUrl } from "@/lib/s3.js";
 import { redirect, notFound } from "next/navigation";
 import WizardClient from "./WizardClient.js";
 export const dynamic = "force-dynamic";
@@ -10,7 +11,11 @@ export default async function PledgePage({ params }) {
   const { id } = await params;
   const actor = await currentActor();
   if (!actor) redirect("/login?expired=1");
-  if (!can(actor, "appraise", { need: "full" }).ok) redirect("/home");
+  // E15 №5 (owner, 29 Aug 2026): the disburse desk may OPEN the file to review
+  // it — editing rights stay with appraise; the wizard renders read-only.
+  const mayAppraise = can(actor, "appraise", { need: "full" }).ok;
+  const mayDisburse = can(actor, "disburse", { need: "full" }).ok;
+  if (!mayAppraise && !mayDisburse) redirect("/home");
 
   const app = await one(
     `SELECT a.*, c.full_name AS customer_name, c.cust_no, c.id AS customer_id
@@ -18,9 +23,19 @@ export default async function PledgePage({ params }) {
       WHERE a.id = $1 AND a.branch_id = $2`, [id, actor.actingBranchId]);
   if (!app) notFound();
 
+  // E15 №5: the latest send-back note, so the maker actually SEES it.
+  const sentBackRow = app.status === "appraised" ? await one(
+    `SELECT h.note, h.at, e.full_name
+       FROM loan_state_history h JOIN employee e ON e.id = h.by_employee
+      WHERE h.application_id = $1 AND h.to_state = 'appraised'
+        AND h.note LIKE 'sent back for changes:%'
+      ORDER BY h.id DESC LIMIT 1`, [id]) : null;
+
   const [items, photos, purities, itemMaster, schemes, valuers, banks, slfAccounts, thr, metals] = await Promise.all([
     q(`SELECT item_id, qty, gross_mg, stone_mg, purity_id, narration FROM appraisal_item WHERE application_id=$1`, [id]),
-    q(`SELECT file_id FROM application_photo WHERE application_id=$1 ORDER BY ord`, [id]),
+    q(`SELECT ap.file_id, f.thumb_s3_key, f.s3_key
+         FROM application_photo ap JOIN file_object f ON f.id = ap.file_id
+        WHERE ap.application_id=$1 ORDER BY ap.ord`, [id]),
     q(`SELECT id, karat, purity_pct AS "purityPct", metal_id AS "metalId"
          FROM purity WHERE active ORDER BY metal_id, purity_pct DESC`),
     q(`SELECT id, name, metal_id AS "metalId" FROM item WHERE active ORDER BY metal_id, name`),
@@ -58,13 +73,23 @@ export default async function PledgePage({ params }) {
   return (
     <Shell title={`New pledge · ${app.customer_name}`}>
       <WizardClient
+        mayAppraise={mayAppraise}
+        isCreator={Number(app.created_by) === Number(actor.employeeId)}
+        sentBack={sentBackRow ? {
+          note: String(sentBackRow.note).replace(/^sent back for changes:\s*/, ""),
+          by: sentBackRow.full_name,
+          at: sentBackRow.at ? new Date(sentBackRow.at).toLocaleDateString("en-IN",
+            { day: "2-digit", month: "short", year: "numeric" }) : null } : null}
         app={{ id: Number(app.id), appNo: app.app_no, status: app.status,
           schemeVersionId: app.scheme_version_id ? Number(app.scheme_version_id) : null,
           requestedPaise: app.requested_paise ? Number(app.requested_paise) : null,
           purpose: app.purpose, borrowerPresent: app.borrower_present,
           valuer1Id: app.valuer1_id ? Number(app.valuer1_id) : null,
           valuer2Id: app.valuer2_id ? Number(app.valuer2_id) : null,
-          ornamentPhotos: photos.map(p => ({ fileId: Number(p.file_id), preview: null, kb: 0 })) }}
+          ornamentPhotos: await Promise.all(photos.map(async p => ({
+            fileId: Number(p.file_id),
+            preview: await viewUrl(p.thumb_s3_key || p.s3_key).catch(() => null),
+            url: await viewUrl(p.s3_key).catch(() => null), kb: 0 }))) }}
         customer={{ id: Number(app.customer_id), fullName: app.customer_name, custNo: app.cust_no }}
         items={items.map(i => ({ itemId: String(i.item_id), qty: i.qty,
           gross: (i.gross_mg / 1000).toFixed(3), stone: (i.stone_mg / 1000).toFixed(3),

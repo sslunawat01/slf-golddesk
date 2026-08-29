@@ -9,8 +9,11 @@ const mg = (grams) => Math.round(Number(grams || 0) * 1000);
 
 export default function WizardClient({ app, customer, items, purities, schemes, itemMaster, valuers,
                                        banks, slfAccounts, ceilingPaise, base24k, funding24k,
-                                       valuer2Threshold, canDisburse, youApproved = false, metals = [], ratedMetalId = 1 }) {
-  const [step, setStep] = useState(app.status === "approved" ? 3 : app.status === "pending_ho" ? 2 : 1);
+                                       valuer2Threshold, canDisburse, youApproved = false, metals = [], ratedMetalId = 1,
+                                       mayAppraise = true, sentBack = null, isCreator = false }) {
+  // №9 (owner, 29 Aug 2026): even an approved file opens at tab 1 — the
+  // disbursing person reviews front-to-back and ENDS at Disburse.
+  const [step, setStep] = useState(app.status === "pending_ho" ? 2 : 1);
   const [sendBack, setSendBack] = useState(null);   // №11: null | { note } — the send-back box
   const [rows, setRows] = useState(items.length
     ? items.map(r => ({ ...r, metalId: String(purities.find(p => String(p.id) === String(r.purityId))?.metalId || ratedMetalId) }))
@@ -34,6 +37,14 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
   const [busy, setBusy] = useState(false);
   const [chip, setChip] = useState(null);
   const [status, setStatus] = useState(app.status);
+  // E15 №5+№6 (owner, 29 Aug 2026): the file is editable in draft/appraised by
+  // people who appraise; everywhere else — and for everyone else — it is a
+  // read-only exhibit. Approval is the cutoff; send-back is the only way back.
+  // D-E amended (owner, 29 Aug 2026, №10): the CREATOR may edit until another
+  // person disburses — editing an approved file returns it to appraised for a
+  // fresh approval, so the checker never pays out silent changes.
+  const ro = !mayAppraise ||
+    !(["draft", "appraised"].includes(status) || (status === "approved" && isCreator));
   const [done, setDone] = useState(null);
 
   function newRow() { return { itemId: "", metalId: String(ratedMetalId), qty: 1, gross: "", stone: "0", purityId: "", narration: "" }; }
@@ -106,6 +117,13 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
     const r = await fetch(`/api/applications/${app.id}`, {
       method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
     }).then(r => r.json());
+    if (r.deapproved) {
+      // D-E amended: the creator edited after approval — the server pulled the
+      // file back to appraised; say so loudly.
+      setStatus("appraised");
+      setChip({ tone: "warn",
+        text: "Saved — the file is back to appraised and needs fresh approval (edited after approval)" });
+    }
     return r;
   }
 
@@ -121,9 +139,13 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
     }).catch(() => ({ ok: false, reason: "Cannot reach the server — check the connection" }));
     setBusy(false);
     if (!r.ok) { setChip({ tone: "bad", text: r.reason }); return; }
-    if (action === "submit") { setStatus(r.status); setStep(3); setChip(r.needsHo
-      ? { tone: "warn", text: `Above your ceiling of ${inr(r.ceilingPaise)} — sent to Head Office` }
-      : { tone: "ok", text: "Approved within branch authority — ready to disburse" }); }
+    if (action === "submit") {
+      // №2 (owner, 29 Aug 2026): the creator's work ends at approval — land on
+      // the customer's 360, where "Applications in progress" shows the file
+      // waiting for another person's disbursal.
+      window.location.href = `/customers/${customer.id}?submitted=1`;
+      return;
+    }
     if (action === "disburse") setDone(r);
     if (action === "cancel") window.location.href = `/customers/${customer.id}`;
     if (action === "sendback") window.location.href = "/home?sentback=1";   // №11
@@ -149,22 +171,36 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   return (
     <div>
+      {sentBack && status === "appraised" && (
+        <div style={{ background: "#fdf1d8", border: "1px solid #e8c97a", borderRadius: 12,
+          padding: "13px 16px", marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".08em",
+            textTransform: "uppercase", color: "#a06407" }}>↩ Sent back from the disburse desk</div>
+          <div style={{ fontSize: 14.5, fontWeight: 800, color: "#7a4d05", marginTop: 4 }}>
+            “{sentBack.note}”</div>
+          <div style={{ fontSize: 12, color: "#a06407", marginTop: 3 }}>
+            — {sentBack.by}{sentBack.at ? `, ${sentBack.at}` : ""} · fix it, then approve afresh</div>
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
-        {[[1, "Appraisal"], [2, "Scheme, amount & people"], [3, "Disbursement"]].map(([n, label]) => (
-          <button key={n} onClick={() => setStep(n)}
-            disabled={(n > 1 && !totals.netMg) || (status === "approved" && n !== 3)}
+        {/* №2: the creator never sees the disbursement tab — another person pays out */}
+        {[[1, "Appraisal"], [2, "Scheme, amount & people"],
+          ...(isCreator ? [] : [[3, "Disbursement"]])].map(([n, label]) => (
+          <button key={n} onClick={() => setStep(n)} disabled={n > 1 && !totals.netMg}
             style={{ border: 0, padding: "9px 16px", borderRadius: 11, fontWeight: 800, fontSize: 13.5,
-              cursor: status === "approved" && n !== 3 ? "not-allowed" : "pointer",
-              opacity: status === "approved" && n !== 3 ? .45 : 1,
-              background: step === n ? "var(--vault)" : "#eceadf",
+              cursor: "pointer", background: step === n ? "var(--vault)" : "#eceadf",
               color: step === n ? "#fff" : "var(--mut)" }}>{n} · {label}</button>))}
-        {status === "approved" && (
-          <span className="chip mut" title="№11: an approved file is read-only — send it back to change anything">
-            🔒 approved — details locked</span>)}
+        {ro && (
+          <span className="chip mut" title="Disbursal is the cutoff (D-E amended) — ask the creator to change it, or send it back">
+            🔒 view only{status === "approved" ? " — approved" : ""}</span>)}
+        {!ro && status === "approved" && isCreator && (
+          <span className="chip warn" title="D-E amended, owner 29 Aug 2026">
+            ✎ you created this file — saving any change returns it to appraised for fresh approval</span>)}
       </div>
 
-      {/* ——— STEP 1 ——— */}
+      {/* ——— STEP 1 ——— (fieldset: one switch makes the whole step read-only) */}
       {step === 1 && (
+        <fieldset disabled={ro} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="card">
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 860 }}>
@@ -255,10 +291,12 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
               <div className="hint" style={{ marginTop: 5 }}>
                 compulsory above {inr(valuer2Threshold)} · must be a different person</div></div>
           </div>
-        </div>)}
+        </div>
+        </fieldset>)}
 
-      {/* ——— STEP 2 ——— */}
+      {/* ——— STEP 2 ——— (same read-only switch) */}
       {step === 2 && (
+        <fieldset disabled={ro} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="card">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 14 }}>
             <div><label className="f">Scheme *</label>
@@ -381,13 +419,14 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                 onChange={e => setDocs(docs.map((x, j) => j === i ? { ...x, note: e.target.value } : x))} />))}
           </div>
           </div>
-        </div>)}
+        </div>
+        </fieldset>)}
 
       {/* ——— STEP 3 ——— frozen UX: two numbered cards.
            №11 (owner, 28 Aug 2026 — beyond-frozen screen, no disburse step
            exists in the frozen HTML): at "approved" a read-only summary sits
            on top so the disbursing person reviews without editing. */}
-      {step === 3 && status === "approved" && (
+      {step === 3 && !isCreator && status === "approved" && (
         <div className="card" style={{ marginBottom: 14, borderLeft: "5px solid var(--vault)" }}>
           <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
             textTransform: "uppercase", color: "var(--mut)", marginBottom: 10 }}>
@@ -399,7 +438,17 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             {cob.on && cob.picked && (
               <div><b>Co-borrower</b><br />{cob.picked.full_name || cob.picked.fullName || cob.picked.name}</div>)}
             <div><b>Ornaments</b><br />{rows.filter(r => r.itemId).length} item line{rows.filter(r => r.itemId).length === 1 ? "" : "s"} ·
-              {" "}{g(totals.netMg)} g net</div>
+              {" "}{g(totals.netMg)} g net
+              {photos.some(ph => ph.preview) && (
+                <div style={{ display: "flex", gap: 6, marginTop: 6, flexWrap: "wrap" }}>
+                  {photos.filter(ph => ph.preview).map((ph, pi) => (
+                    <a key={pi} href={ph.url || ph.preview} target="_blank" rel="noreferrer"
+                      title="Ornament photo — open full size">
+                      <img src={ph.preview} alt={"ornaments " + (pi + 1)}
+                        style={{ width: 46, height: 46, objectFit: "cover", borderRadius: 8,
+                          border: "1px solid var(--line)", display: "block" }} /></a>))}
+                </div>)}
+            </div>
             <div><b>Funding value</b><br /><span className="mono">{inr(totals.fundingPaise)}</span></div>
             <div><b>Scheme</b><br />{scheme ? `${scheme.code || ""} ${scheme.name || ""}`.trim() : "—"}</div>
             <div><b>Sanctioned amount</b><br /><b className="mono" style={{ fontSize: 16 }}>{inr(principalPaise)}</b></div>
@@ -409,7 +458,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             branch as appraised, with your note, for correction and a fresh approval.</div>
         </div>
       )}
-      {step === 3 && (
+      {step === 3 && !isCreator && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 900 }}>
           {status === "pending_ho" && (
             <div style={{ background: "var(--warn-bg)", borderRadius: 12, padding: 16 }}>
@@ -512,16 +561,20 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             {inr(totals.fundingPaise)}</b></>}
         </div>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button className="btn ghost" onClick={() => act("cancel", {
+          {!ro && <button className="btn ghost" onClick={() => act("cancel", {
             reason: "cancelled at counter", narration: "cancelled by operator before disbursement" })}
-            disabled={busy}>✕ Cancel application</button>
+            disabled={busy}>✕ Cancel application</button>}
           {step > 1 && <button className="btn ghost" onClick={() => setStep(s => s - 1)}>← Back</button>}
-          {step === 1 && <button className="btn amber" disabled={busy || !totals.netMg || !photos.length || !v1}
+          {step === 1 && !ro && <button className="btn amber" disabled={busy || !totals.netMg || !photos.length || !v1}
             onClick={async () => { await save(); setStep(2); }}>Next: scheme & amount →</button>}
-          {step === 2 && <button className="btn amber"
+          {step === 1 && ro && <button className="btn ghost"
+            onClick={() => setStep(2)}>Next: scheme & amount →</button>}
+          {step === 2 && !ro && <button className="btn amber"
             disabled={busy || !schemeId || !pv.ok || !vr.ok || (present && !presencePhoto)}
             onClick={() => act("submit")}>
             {aboveCeiling ? "Send to Head Office →" : "Approve & continue →"}</button>}
+          {step === 2 && ro && !isCreator && <button className="btn ghost"
+            onClick={() => setStep(3)}>Next: disbursement →</button>}
           {sendBack && (
             <div style={{ width: "100%", background: "#faf9f4", border: "1px solid #e2ddd1",
               borderRadius: 12, padding: "12px 14px", marginTop: 10 }}>
@@ -540,17 +593,17 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                   {busy ? "Sending…" : "Send back ↩"}</button>
               </div>
             </div>)}
-          {step === 3 && status === "approved" && youApproved && (
+          {step === 3 && !isCreator && status === "approved" && youApproved && (
             <div style={{ background: "#fdf1d8", border: "1px solid #e8c97a", borderRadius: 12,
               padding: "12px 14px", marginTop: 14, fontSize: 13.5, color: "#a06407",
               fontWeight: 700 }}>
               🔒 You approved this loan — maker ≠ checker: a different person signs in and
               pays it out. It is waiting on the Ready-to-disburse list on their home screen.
             </div>)}
-          {step === 3 && status === "approved" && canDisburse && !youApproved && !sendBack &&
+          {step === 3 && !isCreator && status === "approved" && canDisburse && !youApproved && !sendBack &&
             <button className="btn ghost" disabled={busy}
               onClick={() => setSendBack({ note: "" })}>↩ Send back for changes</button>}
-          {step === 3 && status === "approved" && canDisburse && !youApproved &&
+          {step === 3 && !isCreator && status === "approved" && canDisburse && !youApproved &&
             <button className="btn green" disabled={busy || !plan.ok}
               onClick={() => act("disburse", { cashPaise: Math.round(Number(cash || 0) * 100),
                 bankLegs, slfAccountId: slfAcc ? Number(slfAcc) : null })}>

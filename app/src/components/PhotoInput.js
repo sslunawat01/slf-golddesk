@@ -58,7 +58,9 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
       <button type="button" disabled={busy} onClick={() => ref.current?.click()} title="add photo"
         style={{ border: "1px solid #cfc9ba", background: "#fff", borderRadius: 9, padding: "6px 10px",
           minHeight: 34, cursor: "pointer", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>
-        {busy ? "…" : "📷"}</button>
+        {/* E16 №3/№7 (owner, 29 Aug 2026): a bare camera icon is invisible —
+            compact mode now says what the button does when a label is given */}
+        {busy ? "…" : (label ? `📷 ${label}` : "📷")}</button>
       {err && <span className="chip bad" style={{ marginLeft: 6 }}>{err}</span>}
       <input ref={ref} type="file" accept="image/*" capture="environment" multiple={multiple}
         style={{ display: "none" }} onChange={pick} />

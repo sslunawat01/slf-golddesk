@@ -233,3 +233,88 @@ server PATCH already refused) with "Send back for changes" — compulsory note,
 approved→appraised, note in state history. NOTE: the frozen HTML contains no
 disburse step at all; this screen is beyond-frozen by necessity, styled to the
 wizard's language. Send-back skips the wizard's save-first step by design.
+
+---
+
+## E15 — owner punch list of 29 Aug 2026 (nine items; №10 never arrived)
+
+Bugs: №4 verify crashed on a missing ::verify_method cast (introduced E14,
+caught by reproduction against the dump); proof photo now lives ON the account
+row — add/see/zoom/replace, plus a "proof" API action. №3 branch edits could
+never save because legacy landlines (0253-…) failed the mobile-only phone
+rule — phones now accept STD landlines (leading 0, 10-11 digits).
+
+№5/№6 (D-E, owner): approval is the cutoff. Draft/appraised = editable by
+appraise-rights; approved onward = read-only exhibit for EVERYONE (steps 1-2
+render inside disabled fieldsets, tabs stay clickable), send-back the only way
+back. Send-back note now shows as an amber banner in the wizard AND a
+"Sent back — needs correction" queue on Home; disburse-only people may open
+the file read-only. №1/№2 (D-F, owner override of the frozen narrow editcust):
+NewCustomerClient now serves create / edit / view — the edit screen IS the
+new-customer screen, all fields prefilled, Aadhaar masked to last-4 (retyping
+runs creation's duplicate ceremonies), cust_no immutable, banks managed on the
+360, documents add-only. View rights get the identical untypeable screen.
+
+№7 (owner override of Claude's recommendation): day-end — manual AND automatic
+— cancels EVERY undisbursed application of the branch, including pending_ho.
+№8/№9: scripts/auto-daycycle.mjs + systemd timers — auto day-end 23:59 IST
+(counted=expected, no denominations), auto day-begin 11:00 IST (carry copied),
+all stamped automatic under employee 1.
+
+Build lessons repeated the hard way: a scripted signature splice left two
+props OUTSIDE the destructuring (silent wrong defaults), and a read-only flag
+computed above the state it reads crashed every pledge SSR while the first
+walk pass showed a vacuous green. Both caught by walking twice. Walk twice.
+
+Data finding for the owner: scheme sv7 (GL2070 v2) has effective window
+27-Aug-2026 → 27-Aug-2026 — one day, now past; new pledges cannot select it.
+
+---
+
+## E16 — owner walk findings of 29 Aug 2026 (ten items; №11 blank again)
+
+№6: branch code failed on the DATABASE constraint branch_code_2char — E14
+moved the form and masters.js but not the third layer. Migration 025 replaces
+it with {2,3}. "Enforce twice" means every layer moves together; relearned.
+№4/№5: Aadhaar is stored last-4 ONLY — the box now carries "on file ••••NNNN —
+type full number to replace" as its placeholder; the current photo renders as
+a thumbnail beside the upload box (the box previews only fresh uploads).
+№3/№7: bankPayable reads verifyMethod+verifiedAt — the E15 mapping dropped
+both, so "cheque ✓" and "still needed" showed together. Mapping fixed; the
+cheque path is now ALWAYS open unless penny-verified (attach/see/replace),
+edit-screen bank rows actually SAVE (update by id, insert new; deletion stays
+on the 360), and compact PhotoInput finally prints its label — a bare 📷 was
+the real reason nobody could find the upload.
+№1: 360 shows 👁 View AND ✎ Edit; ?view=1 forces the read-only life.
+№2: 360 gains "Applications in progress — not yet disbursed" so an approved
+file can never hide again. №8: ornament photos on the step-3 review card
+(pledge page now signs photo URLs — step 1 previews them too).
+№9: an approved file opens at tab 1 — review front-to-back, end at Disburse.
+
+№10 — D-E AMENDED (owner, 29 Aug 2026): DISBURSAL is the cutoff, not
+approval. The creator may edit an approved file; the save automatically
+returns it to appraised with a state-history note and a loud chip — fresh
+approval required, so the checker never pays out silent changes. Proven in
+the walk: creator save → deapproved:true → status appraised → note recorded.
+
+---
+
+## E17 — owner walk findings of 29 Aug 2026, second round (seven items)
+
+№2 (the build): migration 026 — receipt.slf_bank_account_id. UPI/bank
+repayments must name the SLF account that received the money: compulsory
+dropdown on the collect screen (branch-scoped, allow_collection — the flag
+the schema had ready), API refuses non-cash without it, ledger prints
+"UPI → <account>". Cash carries NULL; day-end cash math untouched. CHECK
+constraint NOT VALID so historic test receipts stand; every new row obeys.
+№1: the 360's in-progress card is branch-aware — links only within the
+acting branch, otherwise "at <code> — switch branch to open" (the 404 was a
+cross-branch file meeting the pledge screen's correct branch scoping).
+№3: rupeesInWords (Indian lakh/crore) in format.js; the collect screen reads
+the amount back — "₹20,000 — rupees twenty thousand only".
+№4/№5: ← Back to customer atop the customer screen; Cancel in its footer.
+№6: previously uploaded document scans render as clickable thumbnails per
+row (signed server-side); new scans may join an EXISTING document.
+№7: a verified bank row now shows its cheque thumbnail and a replace button
+(the verified branch of the cell hid the proof entirely).
+Walk lesson: never inline $$ in a shell-quoted probe — write walks as files.

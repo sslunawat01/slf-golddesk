@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { rupeesInWords } from "@/lib/format.js";
 
 const inr = (r) => "₹" + Math.round(Number(r || 0)).toLocaleString("en-IN");
 const dmy = (d) => { const [y, m, dd] = String(d).split("-"); return `${dd}-${m}-${y}`; };
@@ -11,6 +12,7 @@ export default function RepayClient({ loanId }) {
   const [done, setDone] = useState(null);
 
   const [amt, setAmt] = useState("");
+  const [slfAcc2, setSlfAcc2] = useState("");   // №2: which SLF account received UPI/bank money
   const [mode, setMode] = useState("");
   const [utr, setUtr] = useState("");
   const [paidBy, setPaidBy] = useState("");
@@ -153,7 +155,7 @@ export default function RepayClient({ loanId }) {
     const r = await fetch(`/api/loans/${loanId}/receipt`, { method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ paidBy: paidBy.trim() || null, amountPaise: Math.round(amtN * 100), mode,
-        utr: utr.trim(), closing: closingIntent }) }).then(r => r.json())
+        utr: utr.trim(), closing: closingIntent, slfBankAccountId: slfAcc2 ? Number(slfAcc2) : null }) }).then(r => r.json())
       .catch(() => ({ ok: false, reason: "The payment could not be sent" }));
     setBusy(false);
     if (!r.ok) { setErr(r.reason); load(); } else setDone(r);
@@ -262,6 +264,12 @@ export default function RepayClient({ loanId }) {
             border: "1px solid #cfc9ba", fontSize: 20, fontWeight: 800,
             fontFamily: "ui-monospace,monospace" }} />
         <div className="hint">Minimum ₹100 · multiples of ₹10 only</div>
+        {amtN > 0 && (
+          <div style={{ marginTop: 6, fontSize: 14.5, fontWeight: 800, color: "var(--vault)" }}>
+            ₹{amtN.toLocaleString("en-IN")}
+            <span style={{ fontWeight: 600, color: "var(--mut)", fontSize: 13 }}>
+              {" "}— rupees {rupeesInWords(amtN)} only</span>
+          </div>)}
 
         <label className="f" style={{ marginTop: 14 }}>Mode</label>
         <select value={mode} onChange={e => { setMode(e.target.value); setUtr(""); }}
@@ -272,6 +280,21 @@ export default function RepayClient({ loanId }) {
           <option value="cash">Cash</option>
           <option value="bank">Bank transfer</option>
         </select>
+        {/* №2 (owner, 29 Aug 2026): UPI/bank money must land somewhere named */}
+        {(mode === "upi" || mode === "bank") && (
+          <>
+            <label className="f" style={{ marginTop: 14 }}>Received into which SLF account</label>
+            <select value={slfAcc2} onChange={e => setSlfAcc2(e.target.value)}
+              style={{ padding: "10px 12px", borderRadius: 10, fontSize: 15, background: "#fff",
+                minWidth: 240, border: "1px solid " + (slfAcc2 ? "#cfc9ba" : "var(--brass)") }}>
+              <option value="">— select account —</option>
+              {(d.slfAccounts || []).map(a => (
+                <option key={a.id} value={a.id}>{a.nickname}</option>))}
+            </select>
+            {!(d.slfAccounts || []).length && (
+              <div className="hint" style={{ color: "var(--bad)" }}>
+                No collection account is allowed for this branch — set one in Settings → SLF banks</div>)}
+          </>)}
         <div style={{ marginTop: 10 }}>
           <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
             textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 }}>
@@ -313,8 +336,9 @@ export default function RepayClient({ loanId }) {
         {err && <div style={{ marginTop: 12 }}><span className="chip bad">{err}</span></div>}
 
         <div style={{ marginTop: 18 }}>
-          <button className="btn" disabled={bad || busy || !d.canCollect}
-            style={{ opacity: bad || busy || !d.canCollect ? .4 : 1,
+          <button className="btn"
+            disabled={bad || busy || !d.canCollect || (mode !== "cash" && !slfAcc2)}
+            style={{ opacity: bad || busy || !d.canCollect || (mode !== "cash" && !slfAcc2) ? .4 : 1,
               cursor: bad || busy ? "not-allowed" : "pointer" }}
             onClick={take}>
             {busy ? "Saving…"

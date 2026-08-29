@@ -1,0 +1,9 @@
+[Unit]
+Description=Run SLF automatic day-begin daily at 11:00 IST
+
+[Timer]
+OnCalendar=*-*-* 11:00:00 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

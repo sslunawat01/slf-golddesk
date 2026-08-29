@@ -55,6 +55,22 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
                 <img src={a.proofThumb} alt="proof" style={{ width: 30, height: 30,
                   objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} /></a>}
             </div>
+            {/* №4 (owner, 29 Aug 2026): proof lives on the row — add, see, replace */}
+            {mayEdit && (
+              <div style={{ marginTop: 6 }}>
+                <PhotoInput kind="cheque" compact
+                  label={a.proofThumb ? "Replace proof photo" : "Add cancelled cheque / passbook"}
+                  value={null}
+                  onChange={async (fid) => {
+                    if (!fid) return;
+                    const r = await fetch(`/api/customers/${customerId}/banks`, {
+                      method: "POST", headers: { "content-type": "application/json" },
+                      body: JSON.stringify({ action: "proof", id: a.id, chequeFileId: fid }),
+                    }).then(x => x.json()).catch(() => ({ ok: false, reason: "Cannot reach the server" }));
+                    if (!r.ok) { setChip({ tone: "bad", text: r.reason }); return; }
+                    window.location.reload();
+                  }} />
+              </div>)}
           </div>
           <div style={{ display: "flex", gap: 7, alignItems: "center", flexShrink: 0 }}>
             <span className={"chip " + (a.verifiedAt ? "ok" : "warn")}>

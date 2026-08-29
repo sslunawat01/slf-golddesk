@@ -83,7 +83,17 @@ export async function GET(req, { params }) {
         WHERE l.customer_id = $1 AND r.mode = 'cash' AND r.business_date = CURRENT_DATE`,
       [pos.loan.customer_id]);
 
+    // E17 №2 (owner, 29 Aug 2026): UPI/bank repayments must name the SLF
+    // account that received the money — offer the branch's collection accounts.
+    const slfAccounts = await q(
+      `SELECT a.id, a.nickname FROM slf_bank_account a
+        WHERE a.active AND a.allow_collection
+          AND (a.scope_all OR EXISTS (SELECT 1 FROM slf_bank_account_branch ab
+                                       WHERE ab.account_id = a.id AND ab.branch_id = $1))
+        ORDER BY a.nickname`, [actor.actingBranchId]);
+
     return NextResponse.json({ ok: true, today,
+      slfAccounts: slfAccounts.map(a => ({ id: Number(a.id), nickname: a.nickname })),
       loan: { id: pos.loan.id, loanNo: pos.loan.loan_no, customerName: pos.loan.customer_name,
         customerId: pos.loan.customer_id,   // for "Back to customer" after a receipt
         schemeCode: pos.loan.scheme_code, disbursedAt: pos.loan.disbursed_at,

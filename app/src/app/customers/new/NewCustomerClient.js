@@ -36,8 +36,17 @@ const blank = (q) => {
   };
 };
 
-export default function NewCustomerClient({ docTypes, prefill }) {
-  const [c, setC] = useState(() => blank(prefill));
+/**
+ * D-F (owner, 29 Aug 2026): this ONE component is now the customer screen in
+ * all three lives — create (original), edit (every field, prefilled), and
+ * view (same screen, nothing typeable). The owner overrode the frozen
+ * editcust's narrow scope: "edit customer screen should look exactly like
+ * new customer screen".
+ */
+export default function NewCustomerClient({ docTypes, prefill, mode = "create",
+  existing = null, customerId = null }) {
+  const [c, setC] = useState(() => existing ? { ...blank(""), ...existing } : blank(prefill));
+  const ro = mode === "view";
   const [tab, setTab] = useState(0);
   const [touched, setTouched] = useState(new Set());
   const [busy, setBusy] = useState(false);
@@ -128,13 +137,17 @@ export default function NewCustomerClient({ docTypes, prefill }) {
 
   async function save(force = false, dupOk = false) {
     setBusy(true); setChip(null);
-    const r = await post("/api/customers",
-      { ...c, blacklistAcknowledged: force, dupAcknowledged: dupOk });
+    const r = mode === "edit"
+      ? await post(`/api/customers/${customerId}/edit`,
+          { action: "full", ...c, blacklistAcknowledged: force, dupAcknowledged: dupOk })
+      : await post("/api/customers",
+          { ...c, blacklistAcknowledged: force, dupAcknowledged: dupOk });
     setBusy(false);
     if (r.needsDupConfirm) return setConfirmDup({ text: r.reason, force });
     if (r.needsBlacklistConfirm) return setConfirmBlacklist(true);
     if (!r.ok) return setChip({ tone: "bad", text: r.reason });
-    window.location.href = `/customers/${r.id}?created=1`;
+    window.location.href = mode === "edit"
+      ? `/customers/${customerId}?edited=1` : `/customers/${r.id}?created=1`;
   }
   function onSave() {
     setTouched(new Set(TABS.map((_, i) => i)));
@@ -188,6 +201,7 @@ export default function NewCustomerClient({ docTypes, prefill }) {
         })}
       </div>
 
+      <fieldset disabled={ro} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
       <div className="card">
         {tab === 0 && <>
           <div className="fg3">
@@ -217,7 +231,10 @@ export default function NewCustomerClient({ docTypes, prefill }) {
           <div className="fg3" style={{ marginTop: 16 }}>
             <F label={`Aadhaar number ${aadhaarStar}`} hint={aadhaarHint}>
               <div style={{ display: "flex", gap: 6 }}>
-                <input className="i mono" inputMode="numeric" maxLength={14} placeholder="1234 1234 1234"
+                <input className="i mono" inputMode="numeric" maxLength={14}
+                  placeholder={c.aadhaarLast4
+                    ? `on file ••••${c.aadhaarLast4} — type full number to replace`
+                    : "1234 1234 1234"}
                   style={{ letterSpacing: ".06em" }} value={formatAadhaar(c.aadhaar)}
                   onChange={e => { set({ aadhaar: cleanAadhaar(e.target.value), aadhaarVerified: false });
                     setNote(n => ({ ...n, aadhaar: null })); }} />
@@ -263,6 +280,14 @@ export default function NewCustomerClient({ docTypes, prefill }) {
           </div>
 
           <div style={{ height: 1, background: "var(--line)", margin: "20px 0 18px" }} />
+          {mode !== "create" && c.photoUrl && !c.photo?.preview && (
+            <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8 }}>
+              <a href={c.photoUrl} target="_blank" rel="noreferrer" title="Current photo — open full size">
+                <img src={c.photoUrl} alt="current" style={{ width: 74, height: 74, borderRadius: 12,
+                  objectFit: "cover", border: "1px solid var(--line)", display: "block" }} /></a>
+              <span style={{ fontSize: 12.5, color: "var(--mut)" }}>
+                Photo on file — upload below to replace it</span>
+            </div>)}
           <PhotoInput kind="customer_photo" square label="Customer photo *" value={c.photo}
             onChange={f => set({ photo: f, photoFileId: f?.fileId ?? null })}
             hint={c.photo ? "1 photo on file · square crop auto-applied"
@@ -312,8 +337,10 @@ export default function NewCustomerClient({ docTypes, prefill }) {
           <div style={{ font: "800 11px ui-sans-serif", letterSpacing: ".07em", textTransform: "uppercase",
             color: "var(--vault3)", marginBottom: 12 }}>Identity on file</div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-            <IdRow label="Aadhaar" value={c.aadhaar ? formatAadhaar(c.aadhaar) : "not entered"}
-              dim={!c.aadhaar} ok={c.aadhaarVerified} scans={c.aadhaarScans}
+            <IdRow label="Aadhaar"
+              value={c.aadhaar ? formatAadhaar(c.aadhaar)
+                : c.aadhaarLast4 ? `••••${c.aadhaarLast4} (on file)` : "not entered"}
+              dim={!c.aadhaar && !c.aadhaarLast4} ok={c.aadhaarVerified} scans={c.aadhaarScans}
               onScans={f => set({ aadhaarScans: f })} />
             <IdRow label="PAN" value={c.pan || "not entered"} dim={!c.pan} ok={c.panVerified}
               scans={c.panScans} onScans={f => set({ panScans: f })} />
@@ -345,7 +372,14 @@ export default function NewCustomerClient({ docTypes, prefill }) {
                     fontSize: 13.5, outline: "none" }} />
                 <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 8px",
                   borderLeft: "1px solid var(--line)", background: "#faf9f4" }}>
-                  {(d.files || []).length > 0 && <span className="chip ok">{d.files.length}</span>}
+                  {/* №6: history first — every scan already on file, clickable */}
+                  {(d.existingScans || []).filter(sf => sf.thumb).map((sf, si) => (
+                    <a key={si} href={sf.full || sf.thumb} target="_blank" rel="noreferrer"
+                      title="Uploaded scan — open full size">
+                      <img src={sf.thumb} alt={"scan " + (si + 1)} style={{ width: 30, height: 30,
+                        objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)",
+                        display: "block" }} /></a>))}
+                  {(d.files || []).length > 0 && <span className="chip ok">+{d.files.length}</span>}
                   <PhotoInput kind="kyc_scan" multiple value={d.files || []} compact
                     onChange={files => patchDoc(i, { files, scans: files.map(f => f.fileId) })} />
                   {c.docs.length > 1 && <button type="button" onClick={() => set({ docs: c.docs.filter((_, j) => j !== i) })}
@@ -417,17 +451,39 @@ export default function NewCustomerClient({ docTypes, prefill }) {
                           disabled={!b.accountNo || !isIfsc(b.ifsc) || !b.holderName}
                           onClick={() => pennyDrop(i)}>✓</button>
                       </div></td>
-                    <td style={{ padding: 8, minWidth: 150 }}>
-                      {b.status === "match" ? <span className="chip ok">matches ✓</span>
-                        : b.status === "mismatch"
-                          ? (b.chequeFileId ? <span className="chip ok">cheque ✓</span>
-                            : <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-                                <span className="chip bad">mismatch</span>
-                                <PhotoInput kind="cheque" compact value={b.cheque}
-                                  onChange={f => patchBank(i, { cheque: f, chequeFileId: f?.fileId ?? null,
-                                    verifyMethod: f ? "cheque_photo" : "none" })} />
-                              </div>)
-                          : <span className="chip mut">unverified</span>}
+                    <td style={{ padding: 8, minWidth: 190 }}>
+                      {/* E16 №3/№7 (owner, 29 Aug 2026): the cheque path is always
+                          open — attach, see, replace — unless penny-verified */}
+                      {b.status === "match" || b.verifiedAt
+                        ? <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            <span className="chip ok">verified ✓</span>
+                            {(b.cheque?.preview || b.chequeUrl) &&
+                              <a href={b.chequeUrl || b.cheque?.preview} target="_blank" rel="noreferrer"
+                                title="Open the cheque/passbook photo">
+                                <img src={b.cheque?.preview || b.chequeUrl} alt="cheque"
+                                  style={{ width: 30, height: 30, objectFit: "cover", borderRadius: 6,
+                                    border: "1px solid var(--line)", display: "block" }} /></a>}
+                            {!ro && <PhotoInput kind="cheque" compact
+                              label={b.chequeFileId ? "replace" : "cheque/passbook"} value={b.cheque}
+                              onChange={f => patchBank(i, { cheque: f,
+                                chequeFileId: f?.fileId ?? b.chequeFileId })} />}
+                          </div>
+                        : <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                            {b.status === "mismatch" && <span className="chip bad">mismatch</span>}
+                            {b.chequeFileId ? (<>
+                              <span className="chip ok">cheque ✓</span>
+                              {(b.cheque?.preview || b.chequeUrl) &&
+                                <a href={b.chequeUrl || b.cheque?.preview} target="_blank" rel="noreferrer"
+                                  title="Open the cheque/passbook photo">
+                                  <img src={b.cheque?.preview || b.chequeUrl} alt="cheque"
+                                    style={{ width: 30, height: 30, objectFit: "cover", borderRadius: 6,
+                                      border: "1px solid var(--line)", display: "block" }} /></a>}
+                            </>) : null}
+                            <PhotoInput kind="cheque" compact
+                              label={b.chequeFileId ? "replace" : "cheque/passbook"} value={b.cheque}
+                              onChange={f => patchBank(i, { cheque: f, chequeFileId: f?.fileId ?? b.chequeFileId,
+                                verifyMethod: (f?.fileId ?? b.chequeFileId) ? "cheque_photo" : "none" })} />
+                          </div>}
                     </td>
                     <td style={{ padding: 8, minWidth: 160 }}>
                       <div style={{ display: "flex", gap: 5 }}>
@@ -479,6 +535,7 @@ export default function NewCustomerClient({ docTypes, prefill }) {
           </div>}
         </>}
       </div>
+      </fieldset>
 
       <div style={{ position: "sticky", bottom: 0, marginTop: 16, background: "var(--vault)",
         borderRadius: 14, padding: "12px 16px", display: "flex", justifyContent: "space-between",
@@ -491,8 +548,11 @@ export default function NewCustomerClient({ docTypes, prefill }) {
           <button className="btn ghost" disabled={tab === 0} onClick={() => setTab(t => t - 1)}>← Previous</button>
           <button className="btn ghost" disabled={tab === TABS.length - 1}
             onClick={() => { setTouched(t => new Set(t).add(tab)); setTab(t => t + 1); }}>Next →</button>
-          <button className="btn green" disabled={busy} onClick={onSave}>
-            {busy ? "Saving…" : "Save customer"}</button>
+          {mode !== "create" && (
+            <a href={`/customers/${customerId}`} className="btn ghost"
+              style={{ textDecoration: "none" }}>{ro ? "← Back" : "Cancel"}</a>)}
+          {!ro && <button className="btn green" disabled={busy} onClick={onSave}>
+            {busy ? "Saving…" : mode === "edit" ? "Save changes" : "Save customer"}</button>}
         </div>
       </div>
       {chip && <div style={{ marginTop: 10 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
