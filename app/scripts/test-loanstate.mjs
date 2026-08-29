@@ -82,7 +82,8 @@ console.log("\n§4 Replaying receipts reproduces the loan's position");
     charges: [{ id: 1, added_on: "2026-07-27", total_paise: 11800 }],
     receipts: [{ business_date: "2026-08-26", amount_paise: Math.round(payment * 100), closes_loan: false }] });
   eq("principal is untouched by an interest-only payment", replayed.principal, 4000000);
-  eq("the cycle clock restarts from the payment date", replayed.cycleAnchor, "2026-08-26");
+  eq("the cycle clock restarts the day AFTER the payment (R-L, owner 28 Aug 2026)",
+     replayed.cycleAnchor, "2026-08-27");
   eq("the ₹118 charge is settled by the ₹120 billed", replayed.charges[0].paidExact, 12000);
   eq("₹2 of that is rounding income, not charge recovery",
      replayed.charges[0].paidExact - replayed.charges[0].amountExact, 200);

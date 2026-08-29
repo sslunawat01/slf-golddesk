@@ -52,7 +52,9 @@ export async function POST(req, { params }) {
       await tx(async (cl) => {
         await cl.query(
           `UPDATE customer_bank_account
-              SET verify_method='manual', verified_at=now() WHERE id=$1`, [cur.id]);
+              SET verify_method = CASE WHEN cheque_file_id IS NOT NULL
+                                       THEN 'cheque_photo' ELSE 'manual' END,
+                  verified_at=now() WHERE id=$1`, [cur.id]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "customer_bank_account", entityId: cur.id, action: "bank_verified_manual",
           after: { by: actor.employeeId, method: "manual",
@@ -70,11 +72,12 @@ export async function POST(req, { params }) {
         await cl.query(
           `UPDATE customer_bank_account
               SET bank=$3, bank_branch=$4, account_no=$5, ifsc=$6, holder_name=$7, acct_type=$8,
+                  cheque_file_id = COALESCE($10, cheque_file_id),
                   verify_method = CASE WHEN $9 THEN 'none' ELSE verify_method END,
                   verified_at   = CASE WHEN $9 THEN NULL   ELSE verified_at   END
             WHERE id=$1 AND customer_id=$2`,
           [cur.id, cust.id, b.bank || "—", b.bankBranch || null, accountNo, ifsc, holder,
-           b.acctType || null, identityChanged]);
+           b.acctType || null, identityChanged, Number(b.chequeFileId) || null]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "customer_bank_account", entityId: cur.id, action: "edit",
           before: { accountNo: cur.account_no, ifsc: cur.ifsc },
@@ -88,9 +91,11 @@ export async function POST(req, { params }) {
     const row = await tx(async (cl) => {
       const r = await cl.query(
         `INSERT INTO customer_bank_account
-           (customer_id, bank, bank_branch, account_no, ifsc, holder_name, acct_type, verify_method)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,'none') RETURNING id`,
-        [cust.id, b.bank || "—", b.bankBranch || null, accountNo, ifsc, holder, b.acctType || null]);
+           (customer_id, bank, bank_branch, account_no, ifsc, holder_name, acct_type,
+            cheque_file_id, verify_method)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'none') RETURNING id`,
+        [cust.id, b.bank || "—", b.bankBranch || null, accountNo, ifsc, holder, b.acctType || null,
+         Number(b.chequeFileId) || null]);
       await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
         table: "customer_bank_account", entityId: r.rows[0].id, action: "add",
         after: { custNo: cust.cust_no, accountNo, ifsc } });

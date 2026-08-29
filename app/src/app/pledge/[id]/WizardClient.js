@@ -11,6 +11,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                                        banks, slfAccounts, ceilingPaise, base24k, funding24k,
                                        valuer2Threshold, canDisburse, youApproved = false, metals = [], ratedMetalId = 1 }) {
   const [step, setStep] = useState(app.status === "approved" ? 3 : app.status === "pending_ho" ? 2 : 1);
+  const [sendBack, setSendBack] = useState(null);   // №11: null | { note } — the send-back box
   const [rows, setRows] = useState(items.length
     ? items.map(r => ({ ...r, metalId: String(purities.find(p => String(p.id) === String(r.purityId))?.metalId || ratedMetalId) }))
     : [newRow()]);
@@ -110,7 +111,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   async function act(action, extra = {}) {
     setBusy(true); setChip(null);
-    if (!["cancel", "disburse"].includes(action)) { const s = await save(); if (!s.ok) { setBusy(false); setChip({ tone: "bad", text: s.reason }); return; } }
+    if (!["cancel", "disburse", "sendback"].includes(action)) { const s = await save(); if (!s.ok) { setBusy(false); setChip({ tone: "bad", text: s.reason }); return; } }
     const r = await fetch(`/api/applications/${app.id}/action`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ action, ...extra }),
@@ -125,6 +126,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
       : { tone: "ok", text: "Approved within branch authority — ready to disburse" }); }
     if (action === "disburse") setDone(r);
     if (action === "cancel") window.location.href = `/customers/${customer.id}`;
+    if (action === "sendback") window.location.href = "/home?sentback=1";   // №11
   }
 
   if (done) return (
@@ -147,12 +149,18 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
         {[[1, "Appraisal"], [2, "Scheme, amount & people"], [3, "Disbursement"]].map(([n, label]) => (
-          <button key={n} onClick={() => setStep(n)} disabled={n > 1 && !totals.netMg}
+          <button key={n} onClick={() => setStep(n)}
+            disabled={(n > 1 && !totals.netMg) || (status === "approved" && n !== 3)}
             style={{ border: 0, padding: "9px 16px", borderRadius: 11, fontWeight: 800, fontSize: 13.5,
-              cursor: "pointer", background: step === n ? "var(--vault)" : "#eceadf",
+              cursor: status === "approved" && n !== 3 ? "not-allowed" : "pointer",
+              opacity: status === "approved" && n !== 3 ? .45 : 1,
+              background: step === n ? "var(--vault)" : "#eceadf",
               color: step === n ? "#fff" : "var(--mut)" }}>{n} · {label}</button>))}
+        {status === "approved" && (
+          <span className="chip mut" title="№11: an approved file is read-only — send it back to change anything">
+            🔒 approved — details locked</span>)}
       </div>
 
       {/* ——— STEP 1 ——— */}
@@ -375,7 +383,32 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
           </div>
         </div>)}
 
-      {/* ——— STEP 3 ——— frozen UX: two numbered cards */}
+      {/* ——— STEP 3 ——— frozen UX: two numbered cards.
+           №11 (owner, 28 Aug 2026 — beyond-frozen screen, no disburse step
+           exists in the frozen HTML): at "approved" a read-only summary sits
+           on top so the disbursing person reviews without editing. */}
+      {step === 3 && status === "approved" && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: "5px solid var(--vault)" }}>
+          <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+            textTransform: "uppercase", color: "var(--mut)", marginBottom: 10 }}>
+            Review before paying out — read-only</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))",
+            gap: 12, fontSize: 13.5 }}>
+            <div><b>Borrower</b><br />{customer.fullName}<br />
+              <span className="mono" style={{ color: "var(--mut)", fontSize: 12 }}>{customer.custNo || ""}</span></div>
+            {cob.on && cob.picked && (
+              <div><b>Co-borrower</b><br />{cob.picked.full_name || cob.picked.fullName || cob.picked.name}</div>)}
+            <div><b>Ornaments</b><br />{rows.filter(r => r.itemId).length} item line{rows.filter(r => r.itemId).length === 1 ? "" : "s"} ·
+              {" "}{g(totals.netMg)} g net</div>
+            <div><b>Funding value</b><br /><span className="mono">{inr(totals.fundingPaise)}</span></div>
+            <div><b>Scheme</b><br />{scheme ? `${scheme.code || ""} ${scheme.name || ""}`.trim() : "—"}</div>
+            <div><b>Sanctioned amount</b><br /><b className="mono" style={{ fontSize: 16 }}>{inr(principalPaise)}</b></div>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--mut)" }}>
+            Anything wrong? Use <b>Send back for changes</b> below — the file returns to the
+            branch as appraised, with your note, for correction and a fresh approval.</div>
+        </div>
+      )}
       {step === 3 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 12, maxWidth: 900 }}>
           {status === "pending_ho" && (
@@ -489,6 +522,24 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             disabled={busy || !schemeId || !pv.ok || !vr.ok || (present && !presencePhoto)}
             onClick={() => act("submit")}>
             {aboveCeiling ? "Send to Head Office →" : "Approve & continue →"}</button>}
+          {sendBack && (
+            <div style={{ width: "100%", background: "#faf9f4", border: "1px solid #e2ddd1",
+              borderRadius: 12, padding: "12px 14px", marginTop: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase",
+                letterSpacing: ".07em", color: "var(--mut)", marginBottom: 6 }}>
+                What must the branch fix? — this note travels with the file</div>
+              <textarea value={sendBack.note} rows={2}
+                onChange={e => setSendBack({ note: e.target.value.slice(0, 300) })}
+                placeholder="e.g. co-borrower missing; weight of the second bangle looks wrong"
+                style={{ width: "100%", border: "1px solid #cfc9ba", borderRadius: 10,
+                  padding: "9px 11px", fontSize: 13.5, boxSizing: "border-box", resize: "vertical" }} />
+              <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 8 }}>
+                <button className="btn ghost" onClick={() => setSendBack(null)} disabled={busy}>Cancel</button>
+                <button className="btn amber" disabled={busy || sendBack.note.trim().length < 5}
+                  onClick={() => act("sendback", { note: sendBack.note.trim() })}>
+                  {busy ? "Sending…" : "Send back ↩"}</button>
+              </div>
+            </div>)}
           {step === 3 && status === "approved" && youApproved && (
             <div style={{ background: "#fdf1d8", border: "1px solid #e8c97a", borderRadius: 12,
               padding: "12px 14px", marginTop: 14, fontSize: 13.5, color: "#a06407",
@@ -496,6 +547,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
               🔒 You approved this loan — maker ≠ checker: a different person signs in and
               pays it out. It is waiting on the Ready-to-disburse list on their home screen.
             </div>)}
+          {step === 3 && status === "approved" && canDisburse && !youApproved && !sendBack &&
+            <button className="btn ghost" disabled={busy}
+              onClick={() => setSendBack({ note: "" })}>↩ Send back for changes</button>}
           {step === 3 && status === "approved" && canDisburse && !youApproved &&
             <button className="btn green" disabled={busy || !plan.ok}
               onClick={() => act("disburse", { cashPaise: Math.round(Number(cash || 0) * 100),

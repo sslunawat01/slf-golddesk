@@ -16,7 +16,7 @@
 import { openLoan, addCharge, applyPayment, validateScheme } from "./engine.js";
 
 /** Stamped on every receipt so a future engine change stays traceable. */
-export const ENGINE_VERSION = "1.0.0";
+export const ENGINE_VERSION = "1.1.0"; // R-L both-days counting (owner 28 Aug 2026)
 
 /** The engine rounds to ₹10. A scheme that says otherwise must not be guessed at. */
 const ROUND_STEP_PAISE = 1000;

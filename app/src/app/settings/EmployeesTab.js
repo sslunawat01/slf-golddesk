@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 import PhotoInput from "@/components/PhotoInput.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
@@ -24,6 +25,7 @@ export default function EmployeesTab() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4: flashes the shared Saved banner
   const [qs, setQs] = useState("");                 // search
   const [fRole, setFRole] = useState(0);
   const [fBranch, setFBranch] = useState(0);
@@ -73,6 +75,7 @@ export default function EmployeesTab() {
       .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
     setBusy(false);
     if (!r.ok) { setErr(r.reason); return null; }
+    setSavedAt(Date.now());   // №4: every successful save announces itself
     return r;
   }
 
@@ -137,6 +140,7 @@ export default function EmployeesTab() {
 
   return (
     <>
+      <SavedToast when={savedAt} />
       {/* ——— credentials shown ONCE ——— */}
       {made && (
         <div className="card" style={{ border: "2px solid var(--vault)", marginBottom: 14 }}>
@@ -355,9 +359,10 @@ export default function EmployeesTab() {
                     <option key={x.id} value={x.fullName + " · " + x.empCode} />)}
                 </datalist></div>
             </div>
-            <span style={F}>Roles * — what they may do</span>
+            <span style={F}>Role * — what they may do (one only)</span>
             <TickRow items={data.roles.map(r => [r.id, r.name])} on={w.roleIds}
-              toggle={(id) => toggle("roleIds", id)} />
+              toggle={(id) => setW({ ...w,
+                roleIds: w.roleIds.includes(id) ? [] : [id] })} />
             <span style={{ ...F, marginTop: 12 }}>Branches * — where they may work
               (tap ★ to set the primary)</span>
             <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
@@ -471,8 +476,7 @@ function RowGroup({ e, td, open, onOpen, data, mem, setMem, canEdit, busy, selfI
             textTransform: "uppercase", color: "var(--mut)", marginBottom: 6 }}>Roles</span>
           <TickRow items={data.roles.map(r => [r.id, r.name])} on={mem.roleIds}
             toggle={canEdit ? (id) => setMem({ ...mem,
-              roleIds: mem.roleIds.includes(id) ? mem.roleIds.filter(x => x !== id)
-                : [...mem.roleIds, id] }) : null} />
+              roleIds: mem.roleIds.includes(id) ? [] : [id] }) : null} />
           <span style={{ display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
             textTransform: "uppercase", color: "var(--mut)", margin: "10px 0 6px" }}>
             Branches (★ primary)</span>

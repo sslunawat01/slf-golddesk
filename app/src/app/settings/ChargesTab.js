@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 
 const inr = (p) => p == null ? "—" : "₹" + Math.round(p / 100).toLocaleString("en-IN");
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
@@ -14,6 +15,7 @@ export default function ChargesTab() {
   const [err, setErr] = useState(null);
   const [form, setForm] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4: flashes the shared Saved banner
 
   const load = () => fetch("/api/settings/charges").then(r => r.json())
     .then(r => r.ok ? setData(r) : setErr(r.reason)).catch(() => setErr("Could not load charges"));
@@ -30,15 +32,18 @@ export default function ChargesTab() {
       headers: { "content-type": "application/json" }, body: JSON.stringify(form) })
       .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
     setBusy(false);
-    if (!r.ok) setErr(r.reason); else { setForm(null); load(); }
+    if (!r.ok) setErr(r.reason); else { setSavedAt(Date.now()); setForm(null); load(); }
   }
 
-  const basisText = (c) => c.calc === "fixed" ? "Fixed" : "% of amount";
-  const valueText = (c) => c.calc === "fixed" ? inr(c.amount_paise) : (Number(c.pct) + "%");
+  const basisText = (c) => c.calc === "flat" ? "Fixed"
+    : c.calc === "pct_of_sanction" ? "% of sanction" : "At actuals";
+  const valueText = (c) => c.calc === "flat" ? inr(c.amount_paise)
+    : c.calc === "pct_of_sanction" ? (Number(c.pct) + "%") : "entered when added";
   const td = { padding: "10px 12px", borderBottom: "1px solid #efece3", fontSize: 13.5 };
 
   return (
     <>
+      <SavedToast when={savedAt} />
       {data.canEdit && !form && (
         <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 10 }}>
           <button className="btn" onClick={() => setForm({ ...EMPTY })}>+ Add charge</button>
@@ -58,7 +63,7 @@ export default function ChargesTab() {
                 <td style={td}>{basisText(c)}</td>
                 <td style={{ ...td, fontFamily: "ui-monospace,monospace" }}>{valueText(c)}</td>
                 <td style={{ ...td, fontFamily: "ui-monospace,monospace" }}>
-                  {c.calc === "percent" ? `${inr(c.min_paise)} / ${inr(c.max_paise)}` : "—"}</td>
+                  {c.calc === "pct_of_sanction" ? `${inr(c.min_paise)} / ${inr(c.max_paise)}` : "—"}</td>
                 <td style={td}>{Number(c.gst_pct)}%</td>
                 <td style={{ ...td, fontFamily: "ui-monospace,monospace" }}>{c.used_on} loan{c.used_on === 1 ? "" : "s"}</td>
                 <td style={{ ...td, textAlign: "right" }}>
@@ -93,13 +98,14 @@ export default function ChargesTab() {
             <div><label style={F}>Charged as *</label>
               <select style={I} value={form.calc} onChange={set("calc")}>
                 <option value="">— select —</option>
-                <option value="fixed">Fixed amount</option>
-                <option value="percent">Percentage of amount</option>
+                <option value="flat">Fixed amount</option>
+                <option value="pct_of_sanction">Percentage of sanction</option>
+                <option value="at_actuals">At actuals — amount typed when added</option>
               </select></div>
-            {form.calc === "fixed" && (
+            {form.calc === "flat" && (
               <div><label style={F}>Amount ₹ *</label>
                 <input style={I} value={form.amountRs} onChange={set("amountRs")} inputMode="decimal" /></div>)}
-            {form.calc === "percent" && (<>
+            {form.calc === "pct_of_sanction" && (<>
               <div><label style={F}>Rate % *</label>
                 <input style={I} value={form.pct} onChange={set("pct")} inputMode="decimal" /></div>
               <div><label style={F}>Minimum ₹</label>

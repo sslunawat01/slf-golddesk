@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -15,6 +16,7 @@ export default function BranchesTab() {
   const [form, setForm] = useState(null);
   const [find, setFind] = useState("");
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4: flashes the shared Saved banner
   const [note, setNote] = useState(null);
   const [safes, setSafes] = useState([]);
   const [safeForm, setSafeForm] = useState(null);   // {branchId, branchName, id?, label, locationNote}
@@ -51,11 +53,12 @@ export default function BranchesTab() {
       .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
     setBusy(false);
     if (!r.ok) setErr(r.reason);
-    else { setForm(null); if (r.note) setNote(r.note); load(); }
+    else { setSavedAt(Date.now()); setForm(null); if (r.note) setNote(r.note); load(); }
   }
 
   return (
     <>
+      <SavedToast when={savedAt} />
       {note && <div style={{ marginBottom: 12 }}><span className="chip warn">{note}</span></div>}
 
       {!form && (
@@ -194,7 +197,7 @@ export default function BranchesTab() {
               <input style={{ ...I, fontFamily: "ui-monospace,monospace", textTransform: "uppercase" }}
                 value={form.code}
                 onChange={e => setForm({ ...form,
-                  code: e.target.value.replace(/[^0-9a-zA-Z]/g, "").toUpperCase().slice(0, 2) })}
+                  code: e.target.value.replace(/[^0-9a-zA-Z]/g, "").toUpperCase().slice(0, 3) })}
                 placeholder="e.g. 04 or B4" />
               {form.id
                 ? <div className="hint">changing it: numbers issued from that moment use the new

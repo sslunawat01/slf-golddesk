@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState , useEffect} from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 const inr = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
 const inr0 = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
 
@@ -9,6 +10,13 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
   const [funding, setFunding] = useState(inForce ? String(Math.round(inForce.fundingPaise / 100)) : "");
   const [chip, setChip] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4
+  useEffect(() => {
+    if (window.location.search.includes("saved=1")) {
+      setSavedAt(Date.now());
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+  }, []);
   const [confirm, setConfirm] = useState(null);
 
   const m = Number(market || 0), f = Number(funding || 0);
@@ -26,11 +34,12 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
     setBusy(false);
     if (r.needsConfirm) { setConfirm({ message: r.reason, currentPaise: r.currentPaise }); return; }
     if (!r.ok) { setChip({ tone: "bad", text: r.reason }); return; }
-    window.location.reload();
+    window.location.href = window.location.pathname + "?saved=1";   // №4
   }
 
   return (
     <div>
+      <SavedToast when={savedAt} />
       {metals.length > 1 && (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
           {metals.map(mm => mm.linked ? (

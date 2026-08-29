@@ -218,7 +218,8 @@ export async function POST(req) {
         return NextResponse.json({ ok: false, reason: "You may not change this — ask for the Edit permission on Settings · employees" }, { status: 403 });
       const roleIds = (b.roleIds || []).map(Number).filter(Boolean);
       const branchIds = (b.branchIds || []).map(Number).filter(Boolean);
-      if (roleIds.length === 0) return bad(["Tick at least one role"]);
+      if (roleIds.length === 0) return bad(["Pick a role"]);
+      if (roleIds.length > 1) return bad(["One role only — an employee holds a single role (№7)"]);
       const primary = Number(b.primaryBranchId || 0) || branchIds[0] || null;
       if (primary && !branchIds.includes(primary))
         return bad(["The primary branch must be one of the ticked branches"]);

@@ -1,5 +1,6 @@
 "use client";
 import { Fragment, useEffect, useState } from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 import { FUNCTION_LABELS, DAY_PRESETS, presetForDays } from "@/lib/roles.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
@@ -16,6 +17,7 @@ export default function RolesTab() {
   const [sel, setSel] = useState(null);        // selected role id
   const [draft, setDraft] = useState(null);    // editable copy of the selected role
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4: flashes the shared Saved banner
   const [saved, setSaved] = useState(false);
   const [naming, setNaming] = useState(null);  // {mode:'rename'|'clone'|'create', value}
 
@@ -61,7 +63,7 @@ export default function RolesTab() {
   async function saveAll() {
     const r = await post({ action: "update", id: role.id, permissions: draft.permissions,
       window: draft.window, limit: draft.limit, schemeIds: draft.schemeIds });
-    if (r) { setSaved(true); load(); }
+    if (r) { setSaved(true); setSavedAt(Date.now()); load(); }
   }
   async function saveName() {
     const body = naming.mode === "create"
@@ -117,6 +119,7 @@ export default function RolesTab() {
 
   return (
     <>
+      <SavedToast when={savedAt} />
       {/* ——— role pills ——— */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 }}>
         {data.rows.map(r => (

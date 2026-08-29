@@ -10,26 +10,28 @@ const eq = (n, g, w) => { const k = JSON.stringify(g) === JSON.stringify(w); k ?
 
 console.log("\n§1 A charge must say how it is calculated");
 ok("a fixed charge with an amount is fine",
-  validCharge({ name: "Notice", calc: "fixed", amountRs: 118, gstPct: 18 }));
+  validCharge({ name: "Notice", calc: "flat", amountRs: 118, gstPct: 18 }));
 ok("a percentage charge with min and max is fine",
-  validCharge({ name: "Processing", calc: "percent", pct: 0.25, minRs: 100, maxRs: 1500, gstPct: 18 }));
+  validCharge({ name: "Processing", calc: "pct_of_sanction", pct: 0.25, minRs: 100, maxRs: 1500, gstPct: 18 }));
 no("a fixed charge without an amount is refused",
-  validCharge({ name: "Notice", calc: "fixed" }), "amount above zero");
+  validCharge({ name: "Notice", calc: "flat" }), "amount above zero");
 no("a percentage above 100 is refused",
-  validCharge({ name: "X", calc: "percent", pct: 120 }), "cannot exceed 100");
+  validCharge({ name: "X", calc: "pct_of_sanction", pct: 120 }), "cannot exceed 100");
 no("a floor above the cap is refused",
-  validCharge({ name: "X", calc: "percent", pct: 1, minRs: 2000, maxRs: 500 }), "minimum cannot exceed");
-no("a two-letter name is refused", validCharge({ name: "ab", calc: "fixed", amountRs: 10 }), "3 characters");
+  validCharge({ name: "X", calc: "pct_of_sanction", pct: 1, minRs: 2000, maxRs: 500 }), "minimum cannot exceed");
+no("a two-letter name is refused", validCharge({ name: "ab", calc: "flat", amountRs: 10 }), "3 characters");
 no("GST of 200% is refused",
-  validCharge({ name: "Notice", calc: "fixed", amountRs: 100, gstPct: 200 }), "gst");
+  validCharge({ name: "Notice", calc: "flat", amountRs: 100, gstPct: 200 }), "gst");
 
 console.log("\n§2 A branch code is forever — it is printed into every loan number");
 ok("a two-digit code is fine",
   validBranch({ code: "04", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: ["01", "02", "03"] }));
 no("a taken code is refused",
   validBranch({ code: "01", name: "Dup", entityId: 1, existingCodes: ["01"] }), "already taken");
-no("letters in the code are refused",
-  validBranch({ code: "B4X", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }), "exactly 2");
+ok("a three-character code like B4X is welcome now (E14 №2, owner 28 Aug 2026)",
+  validBranch({ code: "B4X", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }));
+no("four characters are refused",
+  validBranch({ code: "B4XX", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }), "2 or 3");
 ok("a letter+digit code like b4 is welcome now (D-C)",
   validBranch({ code: "b4", name: "B4 Sinnar", entityId: 1, phone: "9822012345", phone2: "0253231234", email: "b4@slf.in", address: "Main Rd, Sinnar, Nashik 422103", latitude: 19.85, longitude: 74.0, existingCodes: [] }));
 eq("the code is stored uppercase",

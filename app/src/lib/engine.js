@@ -38,6 +38,12 @@
  *  R-J  Principal is a multiple of ₹100. Payments: min ₹100 in ₹10 steps —
  *       the exact settlement figure is always accepted (safety net; with R-D
  *       on charges every settlement already lands on ₹10).
+ *  R-L  BOTH END DAYS COUNT (owner, 28 Aug 2026): the disbursement day and
+ *       the payment day are both interest days — day 1 IS the disbursement
+ *       day. So that no day is ever charged twice, every anchor holds the
+ *       FIRST CHARGEABLE day of its period: disbursement for the first
+ *       cycle, the day AFTER the sealing payment for every later one. The
+ *       same counting applies to loan age, tenure and penal days.
  *
  * Money is handled in PAISE (integers) internally; the public surface speaks
  * rupees. Grams and rates never enter this file — valuation is upstream.
@@ -64,6 +70,15 @@ export function daysBetween(a, b) {
   const da = Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10));
   const db = Date.UTC(+b.slice(0, 4), +b.slice(5, 7) - 1, +b.slice(8, 10));
   return Math.max(0, Math.round((db - da) / MS));
+}
+
+/**
+ * Chargeable days from `from` to `to`, BOTH days counted (R-L, owner
+ * 28 Aug 2026). `from` is the first chargeable day of the period; a `to`
+ * before `from` is zero days. Same day in and out = 1 day.
+ */
+export function countDays(from, to) {
+  return to < from ? 0 : daysBetween(from, to) + 1;
 }
 
 // ————————————————————————— scheme validation ————————————————————————
@@ -175,7 +190,8 @@ export function addCharge(state, { id, amount }) {
  */
 export function dues(scheme, state, asOf, { closing = false } = {}) {
   // —— interest for the current cycle ——
-  const cycleDays = daysBetween(state.cycleAnchor, asOf);
+  // R-L: the anchor is the first chargeable day and today counts too.
+  const cycleDays = countDays(state.cycleAnchor, asOf);
   const rawCycle = cycleInterestRaw(scheme, state.principal, cycleDays);
   let interestDue = Math.max(0, roundUp10(rawCycle) - state.interestPaidInCycle);
 
@@ -190,11 +206,14 @@ export function dues(scheme, state, asOf, { closing = false } = {}) {
       minApplied = true;
     }
   }
-  // The day the floor payment carries the customer to (R-E).
+  // R-L: the floor pays for days 1…minInterestDays, i.e. through
+  // disbursement+(min−1); this is the FIRST CHARGEABLE day after that.
   const minCoversUpto = addDays(state.disbursedAt, scheme.minInterestDays);
 
   // —— penal (R-I) ——
-  const loanAge = daysBetween(state.disbursedAt, asOf);
+  // R-L: the disbursement day is day 1, so age counts both ends. Day `tenure`
+  // is the last in-tenure day; the first overdue day is disbursement+tenure.
+  const loanAge = countDays(state.disbursedAt, asOf);
   const tenure = scheme.tenureDays ?? Infinity;
   const grace = scheme.penalGraceDays ?? 0;
   const rate = scheme.penalRatePct ?? 0;
@@ -204,10 +223,10 @@ export function dues(scheme, state, asOf, { closing = false } = {}) {
     if (withinWindow) {
       inGrace = true;   // closing here ⇒ forgiven entirely; running ⇒ would-be zero
     } else {
-      // Penal accrues from its anchor: tenure end initially, or the date the
-      // last full penal settlement happened (mirrors interest cycles).
+      // Penal accrues from its anchor: the first overdue day initially, or the
+      // day after the last full penal settlement (mirrors interest cycles, R-L).
       const start = state.penalAnchor ?? addDays(state.disbursedAt, tenure);
-      penalDays = daysBetween(start, asOf);
+      penalDays = countDays(start, asOf);
       penalRaw = Math.round((state.principal * rate * penalDays) / (100 * scheme.daysInYear));
     }
   }
@@ -236,7 +255,8 @@ export function dues(scheme, state, asOf, { closing = false } = {}) {
       workLine: workLine(scheme, cycleDays) },
     penal: { days: penalDays, raw: toRupees(penalRaw), due: toRupees(penalDue),
       inGraceWindow: inGrace,
-      graceTill: Number.isFinite(tenure) ? addDays(state.disbursedAt, tenure + grace) : null },
+      // R-L: day tenure+grace is the last forgiven day = disb + (tenure+grace−1)
+      graceTill: Number.isFinite(tenure) ? addDays(state.disbursedAt, tenure + grace - 1) : null },
     charges: { exact: toRupees(chargesExact), due: toRupees(chargesDue),
       roundingIncome: toRupees(chargesRounding) },
     principal: toRupees(state.principal),
@@ -312,11 +332,13 @@ export function applyPayment(scheme, state, { date, amount, closing = false }) {
     rest -= toCharges;
   }
 
-  // 2 · penal — full settlement of penal moves the penal anchor (like R-C)
+  // 2 · penal — full settlement of penal moves the penal anchor (like R-C).
+  //     R-L: the payment day itself was priced, so the new anchor is the
+  //     day after it.
   const toPenal = Math.min(rest, d._paise.penalDue);
   state.penalPaid += toPenal; rest -= toPenal;
   if (toPenal > 0 && toPenal === d._paise.penalDue) {
-    state.penalAnchor = date; state.penalPaid = 0;
+    state.penalAnchor = addDays(date, 1); state.penalPaid = 0;
   }
 
   // 3 · interest
@@ -326,13 +348,16 @@ export function applyPayment(scheme, state, { date, amount, closing = false }) {
   rest -= toInterest;
 
   // R-C: full interest settled up to `date` ⇒ seal the cycle, restart the clock.
+  // R-L: the payment day was priced inside THIS cycle, so the next cycle's
+  // first chargeable day is the day after it.
   // R-E: when the minimum-days floor was applied, the customer has bought days
-  // beyond today — the clock restarts from the day those days run out, never
-  // from the payment date, or he would pay twice for the same days.
+  // beyond today — the clock restarts from the first day the floor does NOT
+  // cover, never earlier, or he would pay twice for the same days.
   const sealsCycle = toInterest > 0 && toInterest === d._paise.interestDue;
   if (sealsCycle) {
+    const nextDay = addDays(date, 1);
     const upto = d.interest.minCoversUpto;
-    state.cycleAnchor = (upto && upto > date) ? upto : date;
+    state.cycleAnchor = (upto && upto > nextDay) ? upto : nextDay;
     state.interestPaidInCycle = 0;
   }
 

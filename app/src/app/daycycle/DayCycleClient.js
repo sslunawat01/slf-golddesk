@@ -46,7 +46,11 @@ export default function DayCycleClient() {
         variance <b className="mono">{inr(closed.variancePaise)}</b></p>
       <p style={{ color: "var(--mut)", fontSize: 13 }}>
         Tomorrow's day-begin carries {inr(closed.countedPaise)} forward.</p>
-      <a href="/home" className="btn" style={{ textDecoration: "none" }}>Back to home</a>
+      {/* №9 (owner 28 Aug 2026): the branch's day is over — sign out */}
+      <button className="btn" onClick={async () => {
+        await fetch("/api/auth/logout", { method: "POST" }).catch(() => {});
+        window.location.href = "/login";
+      }}>Sign out</button>
     </div>
   );
 
@@ -58,7 +62,7 @@ export default function DayCycleClient() {
     setBusy(false);
     if (!r.ok) setErr(r.reason);
     else if (body.action === "end") setClosed(r);
-    else { setTab("end"); load(); }
+    else window.location.href = "/home";   // №8 (owner 28 Aug 2026): day-begin signed → go home
   }
 
   const dbCountP = dbCount === "" ? null : Math.round(Number(dbCount) * 100);

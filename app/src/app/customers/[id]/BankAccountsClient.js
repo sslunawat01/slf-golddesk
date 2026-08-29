@@ -1,11 +1,12 @@
 "use client";
 import { useState } from "react";
+import PhotoInput from "@/components/PhotoInput.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
 const I = { width: "100%", border: "1px solid #cfc9ba", borderRadius: 10, padding: "0 11px",
   height: 40, fontSize: 13.5, background: "#fff", boxSizing: "border-box" };
-const BLANK = { bank: "", bankBranch: "", accountNo: "", ifsc: "", holderName: "", acctType: "" };
+const BLANK = { bank: "", bankBranch: "", accountNo: "", ifsc: "", holderName: "", acctType: "", chequeFileId: null };
 
 export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
   const [form, setForm] = useState(null);   // BLANK + {id?} + orig for reset warning
@@ -47,7 +48,13 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
             <div style={{ fontWeight: 700, fontSize: 13.5 }}>{a.bank}
               <span className="mono" style={{ color: "var(--mut)", fontWeight: 600,
                 marginLeft: 8, fontSize: 12 }}>{String(a.accountNo)} · {a.ifsc}</span></div>
-            <div style={{ fontSize: 12, color: "var(--mut)" }}>{a.holderName}</div>
+            <div style={{ fontSize: 12, color: "var(--mut)" }}>{a.holderName}
+              {a.proofThumb && <a href={a.proofFull || a.proofThumb} target="_blank"
+                rel="noreferrer" title="Cancelled cheque / passbook — open full size"
+                style={{ marginLeft: 8, verticalAlign: "middle", display: "inline-block" }}>
+                <img src={a.proofThumb} alt="proof" style={{ width: 30, height: 30,
+                  objectFit: "cover", borderRadius: 6, border: "1px solid var(--line)" }} /></a>}
+            </div>
           </div>
           <div style={{ display: "flex", gap: 7, alignItems: "center", flexShrink: 0 }}>
             <span className={"chip " + (a.verifiedAt ? "ok" : "warn")}>
@@ -74,6 +81,7 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
                 onClick={() => setForm({ ...BLANK, id: a.id, bank: a.bank,
                   bankBranch: a.bankBranch || "", accountNo: String(a.accountNo),
                   ifsc: a.ifsc, holderName: a.holderName, acctType: a.acctType || "",
+                  chequeFileId: a.chequeFileId || null,
                   _origAcct: String(a.accountNo), _origIfsc: a.ifsc })}>Edit</button>}
           </div>
         </div>
@@ -100,6 +108,14 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
             <div><span style={F}>Account holder *</span>
               <input style={I} value={form.holderName}
                 onChange={e => setForm({ ...form, holderName: e.target.value })} /></div>
+          </div>
+          {/* №6 (owner 28 Aug 2026): proof photo — cancelled cheque or passbook front page */}
+          <div style={{ marginTop: 12 }}>
+            <PhotoInput kind="cheque" compact
+              label="Cancelled cheque / passbook photo"
+              hint="Take or upload one photo — it stays attached to this account and backs the verification"
+              value={form.chequeFileId}
+              onChange={(id) => setForm({ ...form, chequeFileId: id })} />
           </div>
           {identityChanged && (
             <div style={{ marginTop: 10 }}>

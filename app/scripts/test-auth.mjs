@@ -29,15 +29,16 @@ console.log("\n§1 Passwords");
   eq("session token hashed for storage", t.tokenHash === sha256(t.token) && t.tokenHash !== t.token, true);
 }
 
-console.log("\n§2 Permission merging (highest level wins across roles)");
+console.log("\n§2 Permission merging (bits union across roles — D-B redesign, owner 28 Aug 2026)");
 {
   const merged = mergePermissions([
     { fn: "collect", level: "view" }, { fn: "collect", level: "full" },
-    { fn: "reports", level: "view" }, { fn: "settings", level: "none" },
+    { fn: "reports", level: "view" }, { fn: "set_charges", level: "none" },
   ]);
-  eq("collect merged to full", merged.collect, "full");
-  eq("reports stays view", merged.reports, "view");
-  eq("ungranted defaults to none", merged.appraise, "none");
+  // legacy 'full' converts to all four bits; bits OR together across roles
+  eq("collect merged to all four bits", merged.collect, { view: true, add: true, edit: true, delete: true });
+  eq("reports stays view-only bits", merged.reports, { view: true, add: false, edit: false, delete: false });
+  eq("ungranted defaults to no bits", merged.appraise, { view: false, add: false, edit: false, delete: false });
 }
 
 console.log("\n§3 can() — deny by default, branch and scheme scoped");
@@ -135,8 +136,11 @@ console.log("\n§6 Lockout");
 console.log("\n§7 Desk visibility derives from permissions, not role names");
 {
   const owner = { permissions: mergePermissions(
+      // D-B (owner 28 Aug 2026): 'settings' umbrella replaced by per-tab set_* fns
       ["appraise","sanction","vault","disburse","collect","renew","release","dayend",
-       "cash_transfer","rate_maker","rate_checker","reports","settings"].map(fn => ({ fn, level: "full" }))),
+       "cash_transfer","rate_maker","rate_checker","reports",
+       "set_charges","set_branches","set_schemes","set_roles",
+       "set_employees","set_metals","set_items","set_banks"].map(fn => ({ fn, level: "full" }))),
     branchIds: [1,7], schemeIds: [1,2,3,4], actingBranchId: 7 };
   const valuer = { permissions: mergePermissions([{ fn: "appraise", level: "full" }, { fn: "reports", level: "view" }]),
     branchIds: [1], schemeIds: [1], actingBranchId: 1 };

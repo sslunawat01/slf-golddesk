@@ -79,7 +79,10 @@ export function validEmployment(b = {}, employmentTypes = []) {
   const roleIds = (b.roleIds || []).map(Number).filter(Boolean);
   const branchIds = (b.branchIds || []).map(Number).filter(Boolean);
   if (roleIds.length === 0)
-    problems.push("Tick at least one role — with no role the person can sign in but do nothing");
+    problems.push("Pick a role — with no role the person can sign in but do nothing");
+  // №7 (owner, 28 Aug 2026): exactly ONE role per employee.
+  if (roleIds.length > 1)
+    problems.push("One role only — an employee holds a single role");
   // owner (28 Aug 2026): branch posting is OPTIONAL — an unposted employee
   // exists but cannot sign in anywhere until posted.
   const primary = Number(b.primaryBranchId || 0);

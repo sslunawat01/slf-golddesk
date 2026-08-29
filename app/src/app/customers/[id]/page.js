@@ -38,9 +38,12 @@ export default async function Customer360({ params, searchParams }) {
          FROM customer_document cd JOIN document_type dt ON dt.id = cd.doc_type_id
         WHERE cd.customer_id = $1 ORDER BY dt.category, dt.name`, [id]),
     one(`SELECT name, relation, mobile FROM nominee WHERE customer_id = $1 AND is_current LIMIT 1`, [id]),
-    q(`SELECT id, bank, bank_branch, account_no, ifsc, holder_name, acct_type, verified_at,
-              verify_method, cheque_file_id
-         FROM customer_bank_account WHERE customer_id = $1 ORDER BY id`, [id]),
+    q(`SELECT ba.id, ba.bank, ba.bank_branch, ba.account_no, ba.ifsc, ba.holder_name,
+              ba.acct_type, ba.verified_at, ba.verify_method, ba.cheque_file_id,
+              pf.thumb_s3_key AS proof_thumb_key, pf.s3_key AS proof_key
+         FROM customer_bank_account ba
+         LEFT JOIN file_object pf ON pf.id = ba.cheque_file_id
+        WHERE ba.customer_id = $1 ORDER BY ba.id`, [id]),
     q(`SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, l.scheme_version_id,
               s.code AS scheme,
               (CURRENT_DATE - l.disbursed_at)::int AS age_days,
@@ -95,6 +98,8 @@ export default async function Customer360({ params, searchParams }) {
     <Shell>
       {sp?.created && <div style={{ marginBottom: 14 }}>
         <span className="chip ok">customer created · KYC filed today</span></div>}
+      {sp?.edited && <div style={{ marginBottom: 14 }}>
+        <span className="chip ok">Saved ✓ — customer details updated</span></div>}
       {sp?.err && <div style={{ marginBottom: 14 }}>
         <span className="chip bad">{sp.err}</span></div>}
 
@@ -120,6 +125,10 @@ export default async function Customer360({ params, searchParams }) {
               <div style={{ fontWeight: 900, fontSize: 18, lineHeight: 1.25 }}>{c.fullName}</div>
               <div className="mono" style={{ color: "var(--mut)", fontSize: 13, marginTop: 3 }}>
                 {c.cust_no}<br />{c.mobile}</div>
+              {mayEditCust && (
+                <a href={`/customers/${c.id}/edit`} className="btn ghost"
+                  style={{ marginTop: 8, display: "inline-block", padding: "7px 14px",
+                    fontSize: 12.5, textDecoration: "none" }}>✎ Edit customer</a>)}
             </div>
           </div>
 
@@ -204,10 +213,14 @@ export default async function Customer360({ params, searchParams }) {
           <div className="card">
             <K>Bank accounts</K>
             <BankAccountsClient customerId={Number(c.id)} mayEdit={!!mayEditCust}
-              accounts={banks.map(b => ({ id: Number(b.id), bank: b.bank,
+              accounts={await Promise.all(banks.map(async b => ({ id: Number(b.id), bank: b.bank,
                 bankBranch: b.bank_branch, accountNo: String(b.account_no), ifsc: b.ifsc,
                 holderName: b.holder_name, acctType: b.acct_type,
-                verifiedAt: b.verified_at ? String(b.verified_at) : null }))} />
+                chequeFileId: b.cheque_file_id ? Number(b.cheque_file_id) : null,
+                proofThumb: b.proof_thumb_key || b.proof_key
+                  ? await viewUrl(b.proof_thumb_key || b.proof_key).catch(() => null) : null,
+                proofFull: b.proof_key ? await viewUrl(b.proof_key).catch(() => null) : null,
+                verifiedAt: b.verified_at ? String(b.verified_at) : null })))} />
           </div>
 
           <div className="card">

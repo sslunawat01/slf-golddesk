@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 import { rateAtPurity } from "@/lib/metals.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
@@ -13,6 +14,7 @@ export default function MetalsTab() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4: flashes the shared Saved banner
   const [edit, setEdit] = useState(null);   // {id, karat, pct, metal}
   const [add, setAdd] = useState(null);     // {mode:'grade'|'metal', ...}
 
@@ -38,6 +40,7 @@ export default function MetalsTab() {
       .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
     setBusy(false);
     if (!r.ok) { setErr(r.reason); return null; }
+    setSavedAt(Date.now());   // №4: every successful save announces itself
     return r;
   }
 
@@ -46,6 +49,7 @@ export default function MetalsTab() {
 
   return (
     <>
+      <SavedToast when={savedAt} />
       <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".08em",
         textTransform: "uppercase", color: "var(--mut)", marginBottom: 8 }}>
         Metals &amp; purity — what the valuation engine multiplies by</div>

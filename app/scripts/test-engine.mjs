@@ -3,6 +3,10 @@
  * Every case below was locked with the owner. If any assertion here ever
  * fails, the engine has drifted from the constitution — fix the engine,
  * never the test.
+ *
+ * AMENDED for R-L (owner, 28 Aug 2026): BOTH end days count. D(T0,n) is a
+ * CALENDAR offset, so the loan is n+1 days old on that date. Every figure
+ * below was recomputed by hand for the inclusive count.
  */
 import {
   validateScheme, openLoan, addCharge, dues, applyPayment,
@@ -36,21 +40,21 @@ console.log("\n§1 Canonical single-cycle dues (Product Doc §5)");
 {
   const L = openLoan({ principal: 100000, disbursedAt: T0 });      // Prathmesh
   const d = dues(SB_IND04, L, D(T0, 80));
-  eq("Prathmesh day-80 raw", d.interest.raw, 3945.21);
-  eq("Prathmesh day-80 due (R-B retro + R-D)", d.interest.due, 3950);
-  eq("Prathmesh work line", d.interest.workLine, "Day 1–80 @ 18% (slab 63–123 reached)");
-  eq("Prathmesh settlement (R-F)", dues(SB_IND04, L, D(T0,80), {closing:true}).settlement, 103950);
+  eq("Prathmesh day-80 (81 days, R-L) raw", d.interest.raw, 3994.52);
+  eq("Prathmesh day-80 due (R-B retro + R-D)", d.interest.due, 4000);
+  eq("Prathmesh work line", d.interest.workLine, "Day 1–81 @ 18% (slab 63–123 reached)");
+  eq("Prathmesh settlement (R-F)", dues(SB_IND04, L, D(T0,80), {closing:true}).settlement, 104000);
 }
 {
   const L = openLoan({ principal: 20000, disbursedAt: T0 });       // Komal
-  eq("Komal day-33 due", dues(GL2070, L, D(T0, 33)).interest.due, 370);
+  eq("Komal day-33 due (34 days, R-L)", dues(GL2070, L, D(T0, 33)).interest.due, 380);
 }
 
 console.log("\n§2 Minimum-interest: a lifetime floor on EVERY payment (R-E, amended 27-Jul-2026)");
 {
   const L = openLoan({ principal: 50000, disbursedAt: T0 });       // Archana
   const interim = dues(GL2080, L, D(T0, 5));                       // NOT closing
-  eq("Archana day-5 raw interest is only 5 days", interim.interest.raw, 136.99);
+  eq("Archana day-5 raw interest is only 6 days (R-L)", interim.interest.raw, 164.38);
   eq("but she is charged the 15-day minimum even on an interim payment", interim.interest.due, 420);
   eq("and the screen says so", interim.interest.minApplied, true);
   const close = dues(GL2080, L, D(T0, 5), { closing: true });
@@ -62,8 +66,8 @@ console.log("\n§2 Minimum-interest: a lifetime floor on EVERY payment (R-E, ame
   const L = openLoan({ principal: 40000, disbursedAt: T0 });
   const sameDay = dues(GL2070, L, T0);
   eq("a same-day repayment is not free", sameDay.interest.due, 330);
-  eq("zero days accrued, fifteen days charged", [sameDay.cycleDays, sameDay.interest.minApplied],
-     [0, true]);
+  eq("one day accrued (R-L: same day in and out = 1), fifteen charged",
+     [sameDay.cycleDays, sameDay.interest.minApplied], [1, true]);
 }
 {
   // THE RULE THE OWNER SETTLED: paying the floor buys DAYS, not a reset.
@@ -71,14 +75,14 @@ console.log("\n§2 Minimum-interest: a lifetime floor on EVERY payment (R-E, ame
   const L = openLoan({ principal: 40000, disbursedAt: T0 });
   const first = dues(GL2070, L, D(T0, 3));
   eq("day-3 payment is topped up to 15 days", first.interest.due, 330);
-  eq("those 15 days carry him to day 15", first.interest.minCoversUpto, D(T0, 15));
+  eq("the floor covers days 1–15; the first chargeable day after it", first.interest.minCoversUpto, D(T0, 15));
   applyPayment(GL2070, L, { date: D(T0, 3), amount: first.interest.due });
   eq("the clock restarts where the paid days run out, not on the payment date",
      L.cycleAnchor, D(T0, 15));
 
   const second = dues(GL2070, L, D(T0, 20));
-  eq("he returns on day 20 and owes only the 5 days since", second.cycleDays, 5);
-  eq("five days, not seventeen — he never pays twice for a day", second.interest.due, 110);
+  eq("he returns on D(T0,20) and owes only the 6 days 16–21 (R-L)", second.cycleDays, 6);
+  eq("six days, never twice for a day", second.interest.due, 140);
   eq("the floor is spent and never binds again", second.interest.minApplied, false);
 }
 {
@@ -105,8 +109,8 @@ console.log("\n§3 Cycle anchoring — Q4-B (payment seals period, slab clock re
 {
   const L = openLoan({ principal: 100000, disbursedAt: T0 });      // Prathmesh again
   const d60 = dues(SB_IND04, L, D(T0, 60));
-  eq("cycle-1 day-60 due @15%", d60.interest.due, 2470);
-  const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 60), amount: 2470 });
+  eq("cycle-1 day-60 (61 days, R-L) due @15%", d60.interest.due, 2510);
+  const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 60), amount: 2510 });
   eq("payment seals cycle", receipt.sealsCycle, true);
   const close = dues(SB_IND04, L, D(T0, 80), { closing: true });
   eq("cycle-2 = 20 days, slab restarted @15%", close.interest.due, 830);
@@ -120,7 +124,7 @@ console.log("\n§3 Cycle anchoring — Q4-B (payment seals period, slab clock re
   const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 60), amount: 1000 });
   eq("partial does not seal", receipt.sealsCycle, false);
   const d80 = dues(SB_IND04, L, D(T0, 80));
-  eq("day-80 still one 80-day cycle, credit applied", d80.interest.due, 3950 - 1000);
+  eq("day-80 still one 81-day cycle, credit applied", d80.interest.due, 4000 - 1000);
 }
 
 console.log("\n§4 Penal — Q7-B with grace-forgiveness cliff (R-I)");
@@ -130,18 +134,18 @@ console.log("\n§4 Penal — Q7-B with grace-forgiveness cliff (R-I)");
   eq("close day-190 (within window) penal ₹0", c190.penal.due, 0);
   eq("day-190 grace flag", c190.penal.inGraceWindow, true);
   const c193 = dues(SB_IND04, mk(), D(T0, 193), { closing: true });
-  eq("close day-193 penal on 8 days (from tenure end)", c193.penal.due, 50);
+  eq("close day-193 penal on 9 days from first overdue day (R-L)", c193.penal.due, 50);
   const c250 = dues(SB_IND04, mk(), D(T0, 250), { closing: true });
-  eq("close day-250 penal 65 days", c250.penal.due, 360);
-  eq("day-250 interest rides top slab retroactively", c250.interest.due, 16440);
-  eq("day-250 settlement", c250.settlement, 100000 + 16440 + 360);
+  eq("close day-250 penal 66 days (R-L)", c250.penal.due, 370);
+  eq("day-250 interest rides top slab retroactively (251 days)", c250.interest.due, 16510);
+  eq("day-250 settlement", c250.settlement, 100000 + 16510 + 370);
 }
 
 console.log("\n§4b Penal anchor — paying penal must not re-charge the same days");
 {
   const L = openLoan({ principal: 100000, disbursedAt: T0 });
-  const d200 = dues(SB_IND04, L, D(T0, 200));                       // 15 penal days
-  eq("day-200 penal (15d)", d200.penal.due, 90);
+  const d200 = dues(SB_IND04, L, D(T0, 200));                       // 16 penal days (R-L)
+  eq("day-200 penal (16d, R-L)", d200.penal.due, 90);
   // pay penal + all interest due today (seals both anchors)
   applyPayment(SB_IND04, L, { date: D(T0, 200), amount: d200.penal.due + d200.interest.due });
   const d210 = dues(SB_IND04, L, D(T0, 210));
@@ -157,10 +161,10 @@ console.log("\n§5 Charges rounding → Rounding income (owner's ₹180 rule)");
   eq("charges exact", d.charges.exact, 177);
   eq("charges due rounded", d.charges.due, 180);
   eq("rounding income", d.charges.roundingIncome, 3);
-  eq("settlement with charge = ₹1,04,130", d.settlement, 104130);
-  const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 80), amount: 104130, closing: true });
+  eq("settlement with charge = ₹1,04,180", d.settlement, 104180);
+  const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 80), amount: 104180, closing: true });
   eq("appropriation splits (R-G)", receipt.appropriation,
-     { charges: 180, roundingIncome: 3, penal: 0, interest: 3950, principal: 100000, unallocated: 0 });
+     { charges: 180, roundingIncome: 3, penal: 0, interest: 4000, principal: 100000, unallocated: 0 });
   eq("loan closes", receipt.closing, true);
 }
 
@@ -182,8 +186,8 @@ console.log("\n§7 Prospective mode stays available as scheme config");
   const prosp = { ...SB_IND04, slabMode: "prospective" };
   const L = openLoan({ principal: 100000, disbursedAt: T0 });
   const d = dues(prosp, L, D(T0, 80));
-  eq("prospective day-80 raw", d.interest.raw, 3435.62);
-  eq("prospective day-80 due", d.interest.due, 3440);
+  eq("prospective day-80 raw (81 days: 62@15 + 19@18)", d.interest.raw, 3484.94);
+  eq("prospective day-80 due", d.interest.due, 3490);
 }
 
 console.log("\n§8 replay() — the .bak validation harness");
@@ -192,11 +196,11 @@ console.log("\n§8 replay() — the .bak validation harness");
     { principal: 100000, disbursedAt: T0 },
     [
       { type: "charge", id: "PROC", amount: 177 },
-      { type: "payment", date: D(T0, 60), amount: 2650 },           // 180 chg + 2470 int
+      { type: "payment", date: D(T0, 60), amount: 2690 },           // 180 chg + 2510 int (R-L)
       { type: "payment", date: D(T0, 80), amount: 100830, closing: true },
     ]);
   eq("replay receipt-1 seals", receipts[0].sealsCycle, true);
-  eq("replay receipt-1 split", receipts[0].appropriation.interest, 2470);
+  eq("replay receipt-1 split", receipts[0].appropriation.interest, 2510);
   eq("replay closes clean", state.closed, true);
 }
 

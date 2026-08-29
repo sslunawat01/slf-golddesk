@@ -7,20 +7,21 @@
 // ————————————————————————— charges —————————————————————————
 
 /**
- * @param {{name:string, calc:'fixed'|'percent', amountRs?:number|null,
- *          pct?:number|null, minRs?:number|null, maxRs?:number|null,
- *          gstPct?:number}} c
+ * @param {{name:string, calc:'flat'|'pct_of_sanction'|'at_actuals',
+ *          amountRs?:number|null, pct?:number|null, minRs?:number|null,
+ *          maxRs?:number|null, gstPct?:number}} c
+ * calc values are the database's own charge_calc labels (E14 №1).
  */
 export function validCharge(c = {}) {
   const problems = [];
   if (!String(c.name || "").trim() || String(c.name).trim().length < 3)
     problems.push("Give the charge a name of at least 3 characters");
-  if (!["fixed", "percent"].includes(c.calc))
-    problems.push("Choose how the charge is calculated — fixed amount or percentage");
-  if (c.calc === "fixed") {
+  if (!["flat", "pct_of_sanction", "at_actuals"].includes(c.calc))
+    problems.push("Choose how the charge is calculated — fixed, percentage, or at actuals");
+  if (c.calc === "flat") {
     if (!(Number(c.amountRs) > 0)) problems.push("A fixed charge needs an amount above zero");
   }
-  if (c.calc === "percent") {
+  if (c.calc === "pct_of_sanction") {
     const p = Number(c.pct);
     if (!(p > 0)) problems.push("A percentage charge needs a rate above zero");
     else if (p > 100) problems.push("A charge cannot exceed 100%");
@@ -44,10 +45,10 @@ export function validCharge(c = {}) {
  */
 export function validBranch(b = {}) {
   const problems = [];
-  // D-C (28 Aug 2026): exactly 2 characters, letters or digits, uppercase.
+  // D-C amended (owner, E14 №2): 2 or 3 characters, letters or digits, uppercase.
   const code = String(b.code || "").trim().toUpperCase();
-  if (!/^[A-Z0-9]{2}$/.test(code))
-    problems.push("Branch code must be exactly 2 letters or digits — it is printed into every loan number");
+  if (!/^[A-Z0-9]{2,3}$/.test(code))
+    problems.push("Branch code must be 2 or 3 letters or digits — it is printed into every loan number");
   if ((b.existingCodes || []).map(c => String(c).toUpperCase()).includes(code))
     problems.push(`Branch code ${code} is already taken`);
   if (!String(b.name || "").trim() || String(b.name).trim().length < 3)

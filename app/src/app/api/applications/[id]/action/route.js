@@ -153,6 +153,35 @@ export async function POST(req, { params }) {
   }
 
   // ———————————————————————— disburse ————————————————————————
+  if (action === "sendback") {
+    // №11 (owner, 28 Aug 2026): the person at the disburse desk may return an
+    // approved file for correction instead of paying it out. The note is
+    // compulsory — the branch must know what to fix. The file goes back to
+    // "appraised", so weighments and valuation survive and only the details
+    // change before a fresh approval.
+    if (!can(actor, "disburse", { need: "full" }).ok &&
+        !can(actor, "sanction", { need: "full" }).ok)
+      return NextResponse.json({ ok: false, reason: "You may not send files back" }, { status: 403 });
+    if (app.status !== "approved")
+      return NextResponse.json({ ok: false,
+        reason: `Only an approved file can be sent back — this one is ${app.status}` }, { status: 409 });
+    const note = String(body.note || "").trim();
+    if (note.length < 5)
+      return NextResponse.json({ ok: false,
+        reason: "Write a note of at least 5 characters — the branch must know what to fix" }, { status: 400 });
+    await tx(async (cl) => {
+      await cl.query(`UPDATE loan_application SET status='appraised', updated_at=now(),
+                        updated_by=$2 WHERE id=$1`, [id, actor.employeeId]);
+      await cl.query(`INSERT INTO loan_state_history (application_id, from_state, to_state, by_employee, note)
+                      VALUES ($1,'approved','appraised',$2,$3)`,
+        [id, actor.employeeId, "sent back for changes: " + note]);
+      await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+        table: "loan_application", entityId: Number(id), action: "sent_back_for_changes",
+        after: { note } });
+    });
+    return NextResponse.json({ ok: true, status: "appraised" });
+  }
+
   if (action === "disburse") {
     if (!can(actor, "disburse", { need: "full" }).ok)
       return NextResponse.json({ ok: false, reason: "You may not disburse" }, { status: 403 });

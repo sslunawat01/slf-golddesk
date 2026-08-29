@@ -64,7 +64,7 @@ const good = { designation: "Counter Operator", doj: "2026-08-01",
   roleIds: [3], branchIds: [1], primaryBranchId: 1 };
 ok("a complete employment step passes", validEmployment(good, ["permanent", "contract"]));
 no("zero roles is refused — sign in but do nothing",
-  validEmployment({ ...good, roleIds: [] }), "at least one role");
+  validEmployment({ ...good, roleIds: [] }), "pick a role");
 ok("zero branches is welcome — an unposted employee exists but signs in nowhere (owner 28 Aug 2026)",
   validEmployment({ ...good, branchIds: [], primaryBranchId: 0 }));
 ok("an unposted employee has no primary branch",
@@ -105,6 +105,15 @@ no("suspending the only administrator is refused",
   wouldRemoveLastAdmin([1], 1), "only active administrator");
 ok("suspending an admin is fine when another admin remains",
   wouldRemoveLastAdmin([1, 2], 1));
+
+console.log("\n§ One role per employee (№7, owner 28 Aug 2026)");
+{
+  const good2 = { designation: "Counter Operator", doj: "2026-01-05",
+    employmentType: "full_time", roleIds: [3], branchIds: [1], primaryBranchId: 1 };
+  ok("exactly one role is fine", validEmployment(good2, ["full_time"]));
+  no("two roles are refused — an employee holds a single role",
+     validEmployment({ ...good2, roleIds: [2, 3] }, ["full_time"]), "one role only");
+}
 
 console.log(`\n${pass} passed · ${fail} failed`);
 process.exit(fail ? 1 : 0);

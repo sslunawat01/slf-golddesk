@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import SavedToast from "@/app/ui/SavedToast.js";
 import { deactivationNote } from "@/lib/slfbanks.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
@@ -13,6 +14,7 @@ export default function BanksTab() {
   const [data, setData] = useState(null);
   const [err, setErr] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [savedAt, setSavedAt] = useState(0);   // №4: flashes the shared Saved banner
   const [form, setForm] = useState(null);
 
   const load = () => fetch("/api/settings/banks").then(r => r.json())
@@ -30,6 +32,7 @@ export default function BanksTab() {
       .then(r => r.json()).catch(() => ({ ok: false, reason: "Could not save" }));
     setBusy(false);
     if (!r.ok) { setErr(r.reason); return null; }
+    setSavedAt(Date.now());   // №4: every successful save announces itself
     return r;
   }
 
@@ -50,6 +53,7 @@ export default function BanksTab() {
 
   return (
     <>
+      <SavedToast when={savedAt} />
       <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".08em",
         textTransform: "uppercase", color: "var(--mut)", marginBottom: 8 }}>
         Company bank accounts — where disbursements leave from and collections land</div>

@@ -57,8 +57,8 @@ export async function POST(req) {
              min_paise=$6, max_paise=$7, gst_pct=$8, active=$9, updated_by=$10
            WHERE id=$1`,
           [b.id, name, b.calc,
-           b.calc === "fixed" ? Math.round(Number(b.amountRs) * 100) : null,
-           b.calc === "percent" ? Number(b.pct) : null,
+           b.calc === "flat" ? Math.round(Number(b.amountRs) * 100) : null,
+           b.calc === "pct_of_sanction" ? Number(b.pct) : null,
            b.minRs ? Math.round(Number(b.minRs) * 100) : null,
            b.maxRs ? Math.round(Number(b.maxRs) * 100) : null,
            Number(b.gstPct ?? 0), b.active !== false, actor.employeeId]);
@@ -82,8 +82,8 @@ export async function POST(req) {
            gst_pct, is_penal, active, created_by)
          VALUES ($1,$2::charge_calc,$3,$4,$5,$6,$7,false,true,$8) RETURNING id`,
         [name, b.calc,
-         b.calc === "fixed" ? Math.round(Number(b.amountRs) * 100) : null,
-         b.calc === "percent" ? Number(b.pct) : null,
+         b.calc === "flat" ? Math.round(Number(b.amountRs) * 100) : null,
+         b.calc === "pct_of_sanction" ? Number(b.pct) : null,
          b.minRs ? Math.round(Number(b.minRs) * 100) : null,
          b.maxRs ? Math.round(Number(b.maxRs) * 100) : null,
          Number(b.gstPct ?? 0), actor.employeeId]);

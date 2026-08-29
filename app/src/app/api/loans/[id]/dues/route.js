@@ -85,6 +85,7 @@ export async function GET(req, { params }) {
 
     return NextResponse.json({ ok: true, today,
       loan: { id: pos.loan.id, loanNo: pos.loan.loan_no, customerName: pos.loan.customer_name,
+        customerId: pos.loan.customer_id,   // for "Back to customer" after a receipt
         schemeCode: pos.loan.scheme_code, disbursedAt: pos.loan.disbursed_at,
         ornamentPhotoUrl, coborrowerName: cob ? cob.full_name : null,
         coborrowerCustNo: cob ? cob.cust_no : null },

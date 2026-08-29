@@ -92,9 +92,13 @@ export default function RepayClient({ loanId }) {
         <div style={{ textAlign: "center", marginTop: 8 }}>Thank you — S Lunawat Finance</div>
       </div>
 
-      <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "center" }}>
+      <div style={{ marginTop: 14, display: "flex", gap: 10, justifyContent: "center",
+        flexWrap: "wrap" }}>
         <button className="btn" onClick={() => window.print()}>🖨 Print receipt</button>
-        <a href="/home" className="btn ghost" style={{ textDecoration: "none" }}>Back to home</a>
+        {/* owner 28 Aug 2026: after a receipt, offer both ways back */}
+        <a href={`/customers/${d.loan.customerId}`} className="btn green"
+          style={{ textDecoration: "none" }}>← Back to customer</a>
+        <a href="/home" className="btn ghost" style={{ textDecoration: "none" }}>Go to home</a>
       </div>
     </div>
   ); }
@@ -165,7 +169,9 @@ export default function RepayClient({ loanId }) {
             style={{ width: 56, height: 56, borderRadius: 10, objectFit: "cover",
               border: "1px solid var(--line)" }} />}
         <h1 style={{ fontSize: 24, fontWeight: 900, margin: 0 }}>
-          Collect payment — {d.loan.customerName}</h1>
+          Collect payment — <a href={`/customers/${d.loan.customerId}`}
+            style={{ color: "inherit", textDecorationColor: "var(--brass)" }}
+            title="Open the customer's page">{d.loan.customerName}</a></h1>
       </div>
       {d.loan.coborrowerName &&
         <div style={{ margin: "6px 0 0" }}>

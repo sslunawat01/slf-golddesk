@@ -31,7 +31,8 @@ export default async function LoanProfile({ params }) {
       WHERE l.id = $1`, [id]);
   if (!l) notFound();
 
-  const [sv, slabs, lch, rcp, approps, items, photos, cob, custody, followups, outcomes] =
+  const [sv, slabs, lch, rcp, approps, items, photos, cob, custody, followups, outcomes,
+         borrowerPhotoRow] =
     await Promise.all([
       one(`SELECT * FROM scheme_version WHERE id = $1`, [l.scheme_version_id]),
       q(`SELECT from_day, to_day, rate_pct FROM scheme_slab
@@ -73,6 +74,11 @@ export default async function LoanProfile({ params }) {
            FROM collection_call cc JOIN employee e ON e.id = cc.by_employee
           WHERE cc.loan_id = $1 ORDER BY cc.at DESC`, [id]),
       one(`SELECT enum_range(NULL::call_outcome)::text[] AS labels`),
+      // №10 (owner 28 Aug 2026): the borrower's live photo — current customer photo
+      one(`SELECT f.s3_key, f.thumb_s3_key FROM customer_photo cp
+             JOIN file_object f ON f.id = cp.file_id
+            WHERE cp.customer_id = $1 AND cp.is_current
+            ORDER BY cp.id DESC LIMIT 1`, [l.customer_id]),
     ]);
 
   // live figures — same replay the repay screen prices from
@@ -83,6 +89,16 @@ export default async function LoanProfile({ params }) {
   const P = closing._paise;
   const principalOut = P.settlement - P.interestDue - P.penalDue - P.chargesDue;
   const totalNetMg = items.reduce((s, it) => s + Number(it.net_mg), 0);
+
+  // borrower's live photo (№10) — same signing as the co-borrower below
+  let borrowerPhoto = null;
+  if (borrowerPhotoRow) {
+    borrowerPhoto = {
+      thumb: await viewUrl(borrowerPhotoRow.thumb_s3_key || borrowerPhotoRow.s3_key).catch(() => null),
+      full: await viewUrl(borrowerPhotoRow.s3_key).catch(() => null),
+    };
+    if (!borrowerPhoto.thumb) borrowerPhoto = null;
+  }
 
   // co-borrower photo — the pledge-day snapshot, else their customer photo
   let cobPhoto = null;
@@ -161,9 +177,51 @@ export default async function LoanProfile({ params }) {
         {l.status !== "active" && <span className="chip mut" style={{ marginLeft: 10,
           verticalAlign: "middle" }}>{l.status.replace(/_/g, " ")}</span>}
       </h1>
-      <p className="mono" style={{ color: "var(--mut)", fontSize: 14, margin: "0 0 16px" }}>
+      <p className="mono" style={{ color: "var(--mut)", fontSize: 14, margin: "0 0 12px" }}>
         {l.scheme_code} · {g(totalNetMg)} g net · disbursed {dmy(l.disbursed_at)} · day {l.age_days} · as on {dmy(today)}
       </p>
+
+      {/* №10+№5 (owner 28 Aug 2026): the people on this loan, live photos, straight links */}
+      <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
+        margin: "0 0 16px" }}>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          {borrowerPhoto
+            ? <a href={borrowerPhoto.full || borrowerPhoto.thumb} target="_blank" rel="noreferrer"
+                title="Open full size"><img src={borrowerPhoto.thumb} alt="borrower"
+                style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover",
+                  border: "1px solid var(--line)", display: "block" }} /></a>
+            : <div style={{ width: 52, height: 52, borderRadius: 10, background: "#faf9f4",
+                border: "1px dashed #cfc9ba", display: "grid", placeItems: "center",
+                color: "var(--mut)", fontSize: 10 }}>no photo</div>}
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14 }}>{l.cust_name}</div>
+            <div className="mono" style={{ fontSize: 12, color: "var(--mut)" }}>{l.cust_no} · borrower</div>
+            <div style={{ fontSize: 12.5, marginTop: 2 }}>
+              <a href={`/customers/${l.customer_id}`} style={{ color: "var(--vault)",
+                fontWeight: 800, textDecoration: "none" }}>View customer</a>
+              <span style={{ color: "var(--mut)" }}> · </span>
+              <a href={`/customers/${l.customer_id}/edit`} style={{ color: "var(--vault)",
+                fontWeight: 800, textDecoration: "none" }}>Edit</a>
+            </div>
+          </div>
+        </div>
+        {cob && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            {cobPhoto
+              ? <a href={cobPhoto.full || cobPhoto.thumb} target="_blank" rel="noreferrer"
+                  title="Open full size"><img src={cobPhoto.thumb} alt="co-borrower"
+                  style={{ width: 52, height: 52, borderRadius: 10, objectFit: "cover",
+                    border: "1px solid var(--line)", display: "block" }} /></a>
+              : <div style={{ width: 52, height: 52, borderRadius: 10, background: "#faf9f4",
+                  border: "1px dashed #cfc9ba", display: "grid", placeItems: "center",
+                  color: "var(--mut)", fontSize: 10 }}>no photo</div>}
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14 }}>{cob.full_name}</div>
+              <div className="mono" style={{ fontSize: 12, color: "var(--mut)" }}>{cob.cust_no} · co-borrower</div>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* figure strip — penal gets its own tile (owner request; deviation from frozen) */}
       <div style={{ background: "#faf9f4", border: "1px solid var(--line)", borderRadius: 16,

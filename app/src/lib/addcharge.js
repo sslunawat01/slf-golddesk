@@ -19,11 +19,14 @@ export const MIN_NARRATION = 5;
  * Manual (neither amount nor pct): null — the operator must type the amount.
  */
 export function chargeDefault(ct, principalPaise) {
+  // charge_calc enum: flat | pct_of_sanction | at_actuals (E14 №1 — the code
+  // previously said "fixed"/"percent", which the database has never known,
+  // so every master charge fell through to manual entry)
   const gstPct = Number(ct.gst_pct || 0);
   let base = null;
-  if (ct.calc === "fixed" && ct.amount_paise != null) {
+  if (ct.calc === "flat" && ct.amount_paise != null) {
     base = Number(ct.amount_paise);
-  } else if (ct.calc === "percent" && ct.pct != null) {
+  } else if (ct.calc === "pct_of_sanction" && ct.pct != null) {
     base = Math.round(Number(principalPaise) * Number(ct.pct) / 100);
     if (ct.min_paise != null) base = Math.max(base, Number(ct.min_paise));
     if (ct.max_paise != null && Number(ct.max_paise) > 0) base = Math.min(base, Number(ct.max_paise));

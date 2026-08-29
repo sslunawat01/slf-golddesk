@@ -192,3 +192,44 @@ cash transfer (needs O2) · then the pending owner verdicts above.
 
 *Read alongside: the frozen `.dc.html` UX (pixel truth) · `db/schema.sql` (data truth) ·
 `scripts/test-engine.mjs` (money truth) · `CLAUDE.md` (working rules on the server).*
+
+---
+
+## R-L — both end days count (owner, 28 Aug 2026)
+
+The disbursement day AND the payment day are both interest days; day 1 is the
+disbursement day. To keep every day charged exactly once, all anchors now hold
+the FIRST CHARGEABLE day of their period: disbursement for the first cycle,
+the day AFTER the sealing payment for every later one. Loan age, tenure and
+penal days count the same way; `graceTill` names the true last forgiven day.
+Engine 1.0.0 → 1.1.0. Golden tests recomputed by hand (26 assertions).
+
+Same session, also owner-ordered: post-receipt success screen gains
+"Back to customer" and "Go to home"; Pune calculation test-bed —
+`scripts/seed-pune-tests.mjs` seeds 18 back-dated boundary loans on branch 11
+relative to CURRENT_DATE (publishes test scheme PPT2490, penal 3%/grace 7,
+because all Pune schemes carry penal 0), and `scripts/verify-pune-tests.mjs`
+prints the expected-figures sheet the browser must match. TEST DATA — the
+seeded rows and PPT2490 are on the pre-onboarding delete list.
+
+---
+
+## E14 — owner punch list of 28 Aug 2026 (ten items)
+
+№1 charge_calc labels: code said "fixed/percent", the database has always said
+flat | pct_of_sanction | at_actuals — the mismatch crashed the Charges tab AND
+silently made every master charge "manual" on the add-charge screen. All four
+files now speak the database's dictionary; "at actuals" is a proper option.
+№2 branch code: 2–3 alphanumeric (D-C amended). №4 shared SavedToast on every
+form (8 settings tabs, rate board, customer edit → 360 chip). №5 view/edit
+customer links on Loan Profile + collect screen; ✎ Edit on the 360.
+№6 cheque/passbook upload per bank account (cheque_file_id already existed);
+verification records 'cheque_photo' when proof attached. №7 ONE role per
+employee — UI single-pick, API refusal, migration 024 unique index.
+№8 Day-Begin → Home. №9 Day-End → sign out. №10 borrower + co-borrower live
+photos on the Loan Profile parties strip (photos were stored; never queried).
+№11 disburse desk: approved file is read-only (pills locked, summary card,
+server PATCH already refused) with "Send back for changes" — compulsory note,
+approved→appraised, note in state history. NOTE: the frozen HTML contains no
+disburse step at all; this screen is beyond-frozen by necessity, styled to the
+wizard's language. Send-back skips the wizard's save-first step by design.
