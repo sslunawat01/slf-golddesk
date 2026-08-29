@@ -318,3 +318,17 @@ row (signed server-side); new scans may join an EXISTING document.
 №7: a verified bank row now shows its cheque thumbnail and a replace button
 (the verified branch of the cell hid the proof entirely).
 Walk lesson: never inline $$ in a shell-quoted probe — write walks as files.
+
+---
+
+## E18 — day-number displays (owner catch, 29 Aug 2026)
+
+The engine billed R-L inclusive days, but three DISPLAYS still showed the SQL
+gap (one less): the Loan Profile header, the Customer 360 loan card, and the
+collect screen header (which also mislabelled the current CYCLE length as the
+loan's day on paid loans). All now show the same truth: day 1 = disbursement
+day, (CURRENT_DATE − disbursed_at) + 1; the dues API carries ageDays so the
+collect header names the loan's age while the working line names the cycle.
+The release SLA counter was already inclusive (closure day = day 1).
+Walked on A4: profile, collect and 360 all read day 101, working Day 1–60,
+receipt bought 41 → 41+60=101. A1 reads day 9 everywhere.

@@ -24,7 +24,7 @@ export default async function LoanProfile({ params }) {
   const l = await one(
     `SELECT l.*, s.code AS scheme_code, s.name AS scheme_name,
             c.full_name AS cust_name, c.cust_no, c.mobile AS cust_mobile,
-            (CURRENT_DATE - l.disbursed_at)::int AS age_days
+            (CURRENT_DATE - l.disbursed_at)::int + 1 AS age_days  -- R-L: day 1 = disbursement day
        FROM loan l JOIN scheme_version sv ON sv.id = l.scheme_version_id
        JOIN scheme s ON s.id = sv.scheme_id
        JOIN customer c ON c.id = l.customer_id

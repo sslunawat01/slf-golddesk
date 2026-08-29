@@ -180,7 +180,7 @@ export default function RepayClient({ loanId }) {
           <span className="chip mut">co-borrower: {d.loan.coborrowerName}
             {d.loan.coborrowerCustNo ? " · " + d.loan.coborrowerCustNo : ""}</span></div>}
       <p className="mono" style={{ color: "var(--mut)", fontSize: 13, margin: "0 0 18px" }}>
-        {d.loan.loanNo} · {d.loan.schemeCode} · day {view.cycleDays} · as on {dmy(d.today)}
+        {d.loan.loanNo} · {d.loan.schemeCode} · day {d.ageDays ?? view.cycleDays} · as on {dmy(d.today)}
         {" · "}<a href={`/addcharge/${loanId}`} style={{ color: "var(--vault)", fontWeight: 800 }}>+ add charge</a></p>
 
       <div className="card" style={{ padding: 0, overflow: "hidden" }}>
@@ -232,7 +232,7 @@ export default function RepayClient({ loanId }) {
         {view.interest.minApplied && (
           <div style={{ padding: "10px 14px", background: "#fdf1d8" }}>
             <span className="chip warn">
-              minimum {view.interest.minDays}-day interest applied — actual age day {view.cycleDays}</span>
+              minimum {view.interest.minDays}-day interest applied — actual age day {d.ageDays ?? view.cycleDays}</span>
             <div style={{ fontSize: 12.5, color: "#a06407", marginTop: 6 }}>
               This payment carries the customer to {dmy(view.interest.minCoversUpto)} —
               no interest is charged again for those days.

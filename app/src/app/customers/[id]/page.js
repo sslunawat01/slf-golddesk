@@ -46,7 +46,7 @@ export default async function Customer360({ params, searchParams }) {
         WHERE ba.customer_id = $1 ORDER BY ba.id`, [id]),
     q(`SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, l.scheme_version_id,
               s.code AS scheme,
-              (CURRENT_DATE - l.disbursed_at)::int AS age_days,
+              (CURRENT_DATE - l.disbursed_at)::int + 1 AS age_days,  -- R-L inclusive
               (SELECT COALESCE(sum(ai.net_mg),0) FROM appraisal_item ai
                 WHERE ai.application_id = l.application_id)::int AS net_mg
          FROM loan l JOIN scheme_version sv ON sv.id = l.scheme_version_id

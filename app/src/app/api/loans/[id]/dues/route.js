@@ -59,6 +59,9 @@ export async function GET(req, { params }) {
       return NextResponse.json({ ok: false, reason: `This loan is ${pos.loan.status}` }, { status: 409 });
 
     const today = (await one(`SELECT CURRENT_DATE::text AS d`)).d;
+    // R-L: the loan's age in days, both ends inclusive — day 1 = disbursement day
+    const ageDays = (await one(
+      `SELECT (CURRENT_DATE - disbursed_at)::int + 1 AS a FROM loan WHERE id=$1`, [id])).a;
     // Two views: what is owed on a running loan, and what it would take to close
     // today. The minimum-interest floor and the grace forgiveness only apply to
     // the second, so both have to be computed.
@@ -92,7 +95,7 @@ export async function GET(req, { params }) {
                                        WHERE ab.account_id = a.id AND ab.branch_id = $1))
         ORDER BY a.nickname`, [actor.actingBranchId]);
 
-    return NextResponse.json({ ok: true, today,
+    return NextResponse.json({ ok: true, today, ageDays: Number(ageDays),
       slfAccounts: slfAccounts.map(a => ({ id: Number(a.id), nickname: a.nickname })),
       loan: { id: pos.loan.id, loanNo: pos.loan.loan_no, customerName: pos.loan.customer_name,
         customerId: pos.loan.customer_id,   // for "Back to customer" after a receipt
