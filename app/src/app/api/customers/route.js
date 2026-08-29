@@ -91,7 +91,7 @@ export async function POST(req) {
         [no, c.custType || "individual", titleCaseName(c.firstName), titleCaseName(c.middleName) || null, titleCaseName(c.lastName),
          normEnum(c.gender, ["male","female","other"]), c.dob, c.relativeName?.trim() || null, c.mobile, c.altMobile || null,
          c.email || null, !!c.appAccess, String(c.aadhaar).slice(-4), c.aadhaarVerified ? new Date() : null,
-         c.pan.toUpperCase(), c.panVerified ? new Date() : null, c.gstin?.toUpperCase() || null,
+         pan || null, c.panVerified && pan ? new Date() : null, c.gstin?.toUpperCase() || null,
          normEnum(c.risk, ["low","medium","high"]), Number(c.maxOpenLoans), Number(c.maxOutstandingPaise),
          c.narration?.trim() || null, actor.employeeId, c.mobileVerified ? new Date() : null,
          aadhaar.length === 12 ? aadhaar : null]);

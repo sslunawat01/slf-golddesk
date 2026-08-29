@@ -393,3 +393,24 @@ co-borrower photos (they initialised to null — reopening forgot them) and the
 API keeps absent fields instead of nulling them (a partial save used to ERASE
 the saved photo ids — proven, then proven fixed: presence 99 survives).
 Step-2 shows the saved photos; the step-3 review card shows both faces.
+
+---
+
+## E21b — the deploy episode's debts (29 Aug 2026)
+
+The E21 deploy cost the owner three rounds of ten silent minutes. Post-mortem:
+1. migrate.mjs deadlocked on ANY failure — the catch awaited pool.end() while
+   the failed client was still checked out; release() sat in a finally that
+   never ran. Fixed: release before end; failure now prints and exits 1 in
+   under a second (proven with a deliberate failing migration).
+2. The failure itself: production had duplicate mobiles among customers made
+   AFTER Claude's data snapshot, plus TWO customers sharing an empty-string
+   PAN — creation stored '' instead of NULL for blank PANs. Code fixed
+   (pan || null); production and local blanks cleaned to NULL.
+3. TWO NEW STANDING DEPLOY RULES:
+   a) any migration that creates an index on a hot table ships a STOP-SERVICE
+      deploy block, stated in advance (index creation waits on app locks);
+   b) pre-deploy data checks for constrained migrations run against a FRESH
+      production dump requested at deploy time — never yesterday's copy.
+Owner ledger: Chaitali Kotecha (id 36) carries placeholder mobile 9000000036
+until edited; Zztest Anil Deshmukh owns 9000000001 (delete list).

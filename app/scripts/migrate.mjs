@@ -43,8 +43,13 @@ for (const f of files) {
   } catch (e) {
     console.error("✗ FAILED", f, "\n ", e.message);
     await client.query("ROLLBACK").catch(() => {});
-    await pool.end(); process.exit(1);
-  } finally { client.release(); }
+    // E21b: release BEFORE ending the pool — pool.end() waits for checked-out
+    // clients, and the old order deadlocked here forever after any failure
+    // (the owner paid 10 silent minutes per attempt to learn this).
+    client.release();
+    await pool.end().catch(() => {});
+    process.exit(1);
+  } finally { try { client.release(); } catch {} }
 }
 console.log(applied ? `${applied} migration(s) applied` : "database already up to date");
 await pool.end();
