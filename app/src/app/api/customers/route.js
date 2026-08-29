@@ -39,6 +39,20 @@ export async function POST(req) {
   }
   if (!c.dupAcknowledged) {
     const hits = [];
+    // E21 №2 (owner, 29 Aug 2026): identity numbers never repeat ACROSS
+    // CUSTOMERS — hard refusals, no save-anyway. Employee overlaps stay
+    // confirmations (an employee may be a customer). Mobile absolutely
+    // unique: it becomes the app login.
+    {
+      const dm = await one(`SELECT full_name, cust_no FROM customer WHERE mobile=$1 LIMIT 1`, [mobile]);
+      if (dm) return NextResponse.json({ ok: false,
+        reason: `This mobile already belongs to ${dm.full_name} (${dm.cust_no}) — mobile numbers never repeat (it becomes the app login)` }, { status: 409 });
+      if (aadhaar.length === 12) {
+        const da = await one(`SELECT full_name, cust_no FROM customer WHERE aadhaar_no=$1 LIMIT 1`, [aadhaar]);
+        if (da) return NextResponse.json({ ok: false,
+          reason: `This Aadhaar already belongs to ${da.full_name} (${da.cust_no}) — identity numbers never repeat` }, { status: 409 });
+      }
+    }
     if (aadhaar.length === 12) {
       const de = await one(
         `SELECT full_name, emp_code FROM employee WHERE aadhaar_no = $1 LIMIT 1`, [aadhaar]);
@@ -71,15 +85,16 @@ export async function POST(req) {
         `INSERT INTO customer (cust_no, cust_type, first_name, middle_name, last_name, gender, dob,
            relative_name, mobile, alt_mobile, email, app_access, aadhaar_last4, aadhaar_verified_at,
            pan_no, pan_verified_at, gstin, risk, kyc_done_at, max_open_loans, max_outstanding_paise,
-           blacklist_narration, created_by, mobile_verified_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,CURRENT_DATE,$19,$20,$21,$22,$23)
+           blacklist_narration, created_by, mobile_verified_at, aadhaar_no)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,CURRENT_DATE,$19,$20,$21,$22,$23,$24)
          RETURNING id, cust_no, full_name, is_blacklisted`,
         [no, c.custType || "individual", titleCaseName(c.firstName), titleCaseName(c.middleName) || null, titleCaseName(c.lastName),
          normEnum(c.gender, ["male","female","other"]), c.dob, c.relativeName?.trim() || null, c.mobile, c.altMobile || null,
          c.email || null, !!c.appAccess, String(c.aadhaar).slice(-4), c.aadhaarVerified ? new Date() : null,
          c.pan.toUpperCase(), c.panVerified ? new Date() : null, c.gstin?.toUpperCase() || null,
          normEnum(c.risk, ["low","medium","high"]), Number(c.maxOpenLoans), Number(c.maxOutstandingPaise),
-         c.narration?.trim() || null, actor.employeeId, c.mobileVerified ? new Date() : null]);
+         c.narration?.trim() || null, actor.employeeId, c.mobileVerified ? new Date() : null,
+         aadhaar.length === 12 ? aadhaar : null]);
 
       const cid = cust.id;
       const addr = (kind, a, same) => cl.query(

@@ -332,3 +332,64 @@ collect header names the loan's age while the working line names the cycle.
 The release SLA counter was already inclusive (closure day = day 1).
 Walked on A4: profile, collect and 360 all read day 101, working Day 1–60,
 receipt bought 41 → 41+60=101. A1 reads day 9 everywhere.
+
+---
+
+## E19 — owner refinements (29 Aug 2026)
+
+№1: the wizard carries "← Back to customer" — leave an undisbursed file
+without touching it; the application stays alive exactly as it was.
+№2: the 360's bank rows are decluttered to tag (verified/unverified) +
+View + Edit. The proof photo, add/replace, and Mark-verified ceremony all
+moved into the new View panel (and the Edit form shows the current proof
+thumbnail beside its upload). E15's row-level camera is retired — the row
+states facts; the panels do work.
+
+---
+
+## E20 — owner batch of 29 Aug 2026 (confirmed scope, then built)
+
+Flags decided for the owner (accepted with "go"): typed date box WITH a 📅
+calendar shortcut; camera permission remembered by the browser's own site
+grant; photo delete is SOFT (leaves screens, survives in audit).
+
+№1 dates: dmy() in format.js is the one display (DD-MM-YYYY); every raw ISO
+print swept (home queues, 360 card, sent-back banner). Entry: DateInput —
+digits self-hyphenate to DD-MM-YYYY, 2-2-4 enforced, impossible dates (31-02)
+refused with a red chip, values stay ISO inside the app. Swapped at customer
+DOB, follow-ups (360 + overdue), employee DOB/DOJ/DOL, scheme windows.
+№2 camera: PhotoInput gained a real Camera option (getUserMedia, back camera
+preferred, live preview, snap → same compress+upload path). Compact = 📸
+beside the file button; full = "📸 Camera" beside "choose file".
+№3: Ready-to-disburse rows created by me carry ✎ Edit (wizard; D-E amended
+de-approves on save). Others' rows unchanged.
+№4: migration 027 customer_bank_proof — an account keeps a proof HISTORY.
+Existing single cheques migrated in; cheque_file_id remains the "current"
+pointer bankPayable reads, following the newest live photo. View panel =
+pure read gallery; Edit form = gallery with per-photo soft delete, add, and
+the Mark-verified ceremony. Proven live: add → 1 live row; remove →
+removed_at + removed_by stamped, screens clear, audit keeps the record.
+
+---
+
+## E21 — owner batch of 29 Aug 2026, second confirmed round
+
+№2 — OWNER OVERRIDE, recorded with Claude's warning attached: full Aadhaar
+stored in PLAIN TEXT (customer.aadhaar_no) and displayed fully. Claude flagged
+UIDAI Data-Vault/masking rules; owner ruled storage-in-clear. Migration 028:
+unique on aadhaar_no, mobile, upper(pan_no). Mobile NEVER repeats — even
+husband-wife — it becomes the app login (owner, explicit). Employee-customer
+overlap stays legal (cross-table checks remain confirmations). Same-table
+duplicates are HARD refusals with the owning customer named; dupAcknowledged
+cannot override them (proven in walk). Legacy rows carry last-4 only until
+retyped; the header says "full number not yet captured".
+№1 — post-snap editor in PhotoInput: rotate (baked into pixels so the crop
+rectangle is always true), drag-to-crop, reset, use; output flows through the
+same 1600px/0.72 + 320px-thumb compression as every upload.
+№4 — compression VERIFIED: /api/files is the single upload path and only
+PhotoInput calls it; every photo is compressed client-side before upload.
+№3/№4(loans) — party photos: the wizard now RESTORES saved presence and
+co-borrower photos (they initialised to null — reopening forgot them) and the
+API keeps absent fields instead of nulling them (a partial save used to ERASE
+the saved photo ids — proven, then proven fixed: presence 99 survives).
+Step-2 shows the saved photos; the step-3 review card shows both faces.

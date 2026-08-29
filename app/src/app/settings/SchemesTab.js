@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import DateInput from "@/components/DateInput.js";
 import SavedToast from "@/app/ui/SavedToast.js";
 import { validSchemeVersion, slabSample } from "@/lib/masters.js";
 
@@ -449,7 +450,7 @@ function Wizard({ data, wiz, setWiz, post, busy, err, setErr, reload }) {
             <input style={I} value={f.daysInYear} onChange={set("daysInYear")} inputMode="numeric" />
             <div className="hint">365 or 366 — the divisor in every interest calculation</div></div>
           <div><label style={F}>Scheme start date *</label>
-            <input style={I} type="date" value={f.effectiveFrom} onChange={set("effectiveFrom")} />
+            <DateInput style={I} value={f.effectiveFrom} onChange={v => set("effectiveFrom")({ target: { value: v } })} />
             <div className="hint">first day branches may sanction on it</div></div>
         </div>
       )}

@@ -40,8 +40,13 @@ export async function PATCH(req, { params }) {
          valuer1_id=$9, valuer2_id=$10, status=$11, updated_at=now(), updated_by=$12
        WHERE id=$1`,
       [id, body.schemeVersionId || null, body.requestedPaise ?? null, body.purpose || null,
-       body.borrowerPresent ?? null, body.presencePhotoId ?? null, body.coborrowerCustomerId ?? null,
-       body.coborrowerPhotoId ?? null, body.valuer1Id ?? null, body.valuer2Id ?? null,
+       body.borrowerPresent ?? null,
+       // E21 №3/№4: an ABSENT field means "keep what's saved"; only an explicit
+       // null clears. A partial save must never silently erase party photos.
+       "presencePhotoId" in body ? (body.presencePhotoId ?? null) : app.presence_photo_id,
+       "coborrowerCustomerId" in body ? (body.coborrowerCustomerId ?? null) : app.coborrower_customer_id,
+       "coborrowerPhotoId" in body ? (body.coborrowerPhotoId ?? null) : app.coborrower_photo_id,
+       body.valuer1Id ?? null, body.valuer2Id ?? null,
        creatorEditingApproved ? "appraised" : (body.items?.length ? "appraised" : app.status),
        actor.employeeId]);
 

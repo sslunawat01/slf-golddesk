@@ -23,11 +23,13 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
   const [amount, setAmount] = useState(app.requestedPaise ? String(app.requestedPaise / 100) : "");
   const [purpose, setPurpose] = useState(app.purpose || "personal");
   const [present, setPresent] = useState(app.borrowerPresent ?? true);
-  const [presencePhoto, setPresencePhoto] = useState(null);
+  // E21 №3/№4 (owner, 29 Aug 2026): the party photos saved at creation come
+  // BACK — before this, reopening forgot them and the next save erased them.
+  const [presencePhoto, setPresencePhoto] = useState(app.presencePhoto || null);
   const [cob, setCob] = useState(app.coborrowerCustomerId
     ? { on: true, picked: { id: app.coborrowerCustomerId, name: app.coborrowerName || "co-borrower on file" }, q: "", results: [] }
     : { on: false, picked: null, q: "", results: [] });
-  const [cobPhoto, setCobPhoto] = useState(null);
+  const [cobPhoto, setCobPhoto] = useState(app.coborrowerPhoto || null);
   const [docs, setDocs] = useState([]);
   const [v1, setV1] = useState(app.valuer1Id || "");
   const [v2, setV2] = useState(app.valuer2Id || "");
@@ -171,6 +173,11 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   return (
     <div>
+      {/* E19 №1 (owner, 29 Aug 2026): leave without touching the file — the
+          application stays exactly as it is, undisbursed and alive */}
+      <a href={`/customers/${customer.id}`} style={{ display: "inline-block", marginBottom: 10,
+        color: "var(--vault)", fontWeight: 800, textDecoration: "none", fontSize: 13.5 }}>
+        ← Back to customer</a>
       {sentBack && status === "appraised" && (
         <div style={{ background: "#fdf1d8", border: "1px solid #e8c97a", borderRadius: 12,
           padding: "13px 16px", marginBottom: 14 }}>
@@ -435,8 +442,22 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             gap: 12, fontSize: 13.5 }}>
             <div><b>Borrower</b><br />{customer.fullName}<br />
               <span className="mono" style={{ color: "var(--mut)", fontSize: 12 }}>{customer.custNo || ""}</span></div>
+            {presencePhoto?.preview && (
+              <div><b>Borrower at the counter</b><br />
+                <a href={presencePhoto.url || presencePhoto.preview} target="_blank" rel="noreferrer"
+                  title="Borrower photo taken at loan creation — open full size">
+                  <img src={presencePhoto.preview} alt="borrower"
+                    style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 10,
+                      border: "1px solid var(--line)", marginTop: 4, display: "block" }} /></a></div>)}
             {cob.on && cob.picked && (
-              <div><b>Co-borrower</b><br />{cob.picked.full_name || cob.picked.fullName || cob.picked.name}</div>)}
+              <div><b>Co-borrower</b><br />{cob.picked.full_name || cob.picked.fullName || cob.picked.name}
+                {cobPhoto?.preview && (
+                  <a href={cobPhoto.url || cobPhoto.preview} target="_blank" rel="noreferrer"
+                    title="Co-borrower photo taken at loan creation — open full size">
+                    <img src={cobPhoto.preview} alt="co-borrower"
+                      style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 10,
+                        border: "1px solid var(--line)", marginTop: 4, display: "block" }} /></a>)}
+              </div>)}
             <div><b>Ornaments</b><br />{rows.filter(r => r.itemId).length} item line{rows.filter(r => r.itemId).length === 1 ? "" : "s"} ·
               {" "}{g(totals.netMg)} g net
               {photos.some(ph => ph.preview) && (

@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import DateInput from "@/components/DateInput.js";
 import { BUCKETS, METHODS, ageTone, daysToNextSlab } from "@/lib/overdue.js";
 
 const I = { border: "1px solid #cfc9ba", borderRadius: 10, padding: "0 10px",
@@ -184,15 +185,15 @@ export default function OverdueClient() {
                         </div>
                         <div style={{ flex: "0 0 148px", minWidth: 135 }}>
                           <div style={F}>Promise to pay</div>
-                          <input type="date" min={data.today} value={fu.ptpDate}
-                            onChange={e => setFu({ ...fu, ptpDate: e.target.value })}
+                          <DateInput min={data.today} value={fu.ptpDate}
+                            onChange={v => setFu({ ...fu, ptpDate: v })}
                             style={{ ...I, width: "100%", fontFamily: "ui-monospace,monospace",
                               fontSize: 13 }} />
                         </div>
                         <div style={{ flex: "0 0 148px", minWidth: 135 }}>
                           <div style={F}>Next follow-up</div>
-                          <input type="date" min={data.today} value={fu.nextFollowUp}
-                            onChange={e => setFu({ ...fu, nextFollowUp: e.target.value })}
+                          <DateInput min={data.today} value={fu.nextFollowUp}
+                            onChange={v => setFu({ ...fu, nextFollowUp: v })}
                             style={{ ...I, width: "100%", fontFamily: "ui-monospace,monospace",
                               fontSize: 13 }} />
                         </div>

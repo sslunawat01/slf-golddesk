@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { dmy } from "@/lib/format.js";
 import { currentActor } from "@/lib/session.js";
 import Shell from "@/components/Shell.js";
 import { visibleDesks, sanctionAuthority, can } from "@/lib/policy.js";
@@ -33,7 +34,8 @@ export default async function Home() {
       ORDER BY h.at DESC`, [actor.actingBranchId]);
 
   const readyQ = await q(
-    `SELECT la.id, la.app_no, la.requested_paise, c.full_name AS cust, s.code AS scheme,
+    `SELECT la.id, la.app_no, la.requested_paise, la.created_by AS creator_id,
+            c.full_name AS cust, s.code AS scheme,
             h.by_employee AS approver_id, e.full_name AS approver, h.at AS approved_at
        FROM loan_application la
        JOIN customer c ON c.id = la.customer_id
@@ -109,7 +111,7 @@ export default async function Home() {
                 <div style={{ color: "#a06407", fontSize: 12.5, marginTop: 2, fontWeight: 700 }}>
                   “{String(r.note).replace(/^sent back for changes:\s*/, "")}”
                   <span style={{ color: "var(--mut)", fontWeight: 400 }}>
-                    {" "}— {r.sent_by}, {String(r.sent_at).slice(0, 10)}</span></div>
+                    {" "}— {r.sent_by}, {dmy(r.sent_at)}</span></div>
               </div>
               <b className="mono" style={{ fontSize: 15 }}>
                 ₹{Math.round(Number(r.requested_paise) / 100).toLocaleString("en-IN")}</b>
@@ -140,10 +142,14 @@ export default async function Home() {
                     marginLeft: 8 }}>{r.app_no}</span>
                   <div style={{ color: "var(--mut)", fontSize: 12.5, marginTop: 2 }}>
                     {r.scheme} · approved by {mine ? "you" : r.approver}
-                    {" · "}{String(r.approved_at).slice(0, 10)}</div>
+                    {" · "}{dmy(r.approved_at)}</div>
                 </div>
                 <b className="mono" style={{ fontSize: 15 }}>
                   ₹{Math.round(Number(r.requested_paise) / 100).toLocaleString("en-IN")}</b>
+                {Number(r.creator_id) === Number(actor.employeeId) && (
+                  <a href={`/pledge/${r.id}`} className="btn ghost"
+                    title="You created this file — editing returns it to appraised for fresh approval (D-E amended)"
+                    style={{ padding: "7px 13px", fontSize: 12.5, textDecoration: "none" }}>✎ Edit</a>)}
                 {canDisburse && !mine ? (
                   <a href={`/pledge/${r.id}`} className="btn green"
                     style={{ fontSize: 13, padding: "9px 16px", textDecoration: "none" }}>

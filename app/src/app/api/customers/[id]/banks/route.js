@@ -30,7 +30,7 @@ export async function POST(req, { params }) {
   if (!cust) return NextResponse.json({ ok: false, reason: "Customer not found" }, { status: 404 });
 
   const b = await req.json().catch(() => ({}));
-  const skipFieldChecks = ["verify", "proof"].includes(b.action);   // these carry only ids
+  const skipFieldChecks = ["verify", "proof", "proof_remove"].includes(b.action);   // ids only
   const problems = [];
   const accountNo = String(b.accountNo || "").replace(/\s/g, "");
   const ifsc = String(b.ifsc || "").trim().toUpperCase();
@@ -78,10 +78,40 @@ export async function POST(req, { params }) {
                   verify_method = CASE WHEN verified_at IS NOT NULL
                                        THEN 'cheque_photo'::verify_method ELSE verify_method END
             WHERE id=$1`, [cur.id, fileId]);
+        // E20 №4: every proof joins the gallery, newest becomes current
+        await cl.query(
+          `INSERT INTO customer_bank_proof (account_id, file_id, added_by)
+           VALUES ($1,$2,$3)`, [cur.id, fileId, actor.employeeId]);
         await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
           table: "customer_bank_account", entityId: cur.id,
           action: cur.cheque_file_id ? "bank_proof_replaced" : "bank_proof_attached",
           after: { fileId } });
+      });
+      return NextResponse.json({ ok: true });
+    }
+
+    if (b.action === "proof_remove") {
+      // E20 №4: soft delete — the photo leaves the screens, the record stays
+      const pr = await one(
+        `SELECT p.*, a.customer_id, a.cheque_file_id AS current_file
+           FROM customer_bank_proof p JOIN customer_bank_account a ON a.id = p.account_id
+          WHERE p.id=$1 AND a.customer_id=$2 AND p.removed_at IS NULL`, [Number(b.proofId), id]);
+      if (!pr) return NextResponse.json({ ok: false, reason: "Photo not found" }, { status: 404 });
+      await tx(async (cl) => {
+        await cl.query(`UPDATE customer_bank_proof SET removed_at=now(), removed_by=$2 WHERE id=$1`,
+          [pr.id, actor.employeeId]);
+        if (Number(pr.current_file) === Number(pr.file_id)) {
+          // the current pointer follows the newest photo still alive
+          await cl.query(
+            `UPDATE customer_bank_account a SET cheque_file_id =
+               (SELECT p2.file_id FROM customer_bank_proof p2
+                 WHERE p2.account_id=a.id AND p2.removed_at IS NULL
+                 ORDER BY p2.id DESC LIMIT 1)
+              WHERE a.id=$1`, [pr.account_id]);
+        }
+        await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+          table: "customer_bank_proof", entityId: Number(pr.id), action: "bank_proof_removed",
+          after: { accountId: Number(pr.account_id), fileId: Number(pr.file_id) } });
       });
       return NextResponse.json({ ok: true });
     }

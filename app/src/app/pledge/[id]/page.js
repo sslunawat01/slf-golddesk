@@ -78,14 +78,29 @@ export default async function PledgePage({ params }) {
         sentBack={sentBackRow ? {
           note: String(sentBackRow.note).replace(/^sent back for changes:\s*/, ""),
           by: sentBackRow.full_name,
-          at: sentBackRow.at ? new Date(sentBackRow.at).toLocaleDateString("en-IN",
-            { day: "2-digit", month: "short", year: "numeric" }) : null } : null}
+          at: sentBackRow.at ? (() => { const d = new Date(sentBackRow.at);
+            const p2 = (n) => String(n).padStart(2, "0");
+            return `${p2(d.getDate())}-${p2(d.getMonth() + 1)}-${d.getFullYear()}`; })() : null } : null}
         app={{ id: Number(app.id), appNo: app.app_no, status: app.status,
           schemeVersionId: app.scheme_version_id ? Number(app.scheme_version_id) : null,
           requestedPaise: app.requested_paise ? Number(app.requested_paise) : null,
           purpose: app.purpose, borrowerPresent: app.borrower_present,
           valuer1Id: app.valuer1_id ? Number(app.valuer1_id) : null,
           valuer2Id: app.valuer2_id ? Number(app.valuer2_id) : null,
+          presencePhoto: app.presence_photo_id ? await (async () => {
+            const f = await one(`SELECT thumb_s3_key, s3_key FROM file_object WHERE id=$1`,
+              [app.presence_photo_id]);
+            return f ? { fileId: Number(app.presence_photo_id),
+              preview: await viewUrl(f.thumb_s3_key || f.s3_key).catch(() => null),
+              url: await viewUrl(f.s3_key).catch(() => null), kb: 0 } : null;
+          })() : null,
+          coborrowerPhoto: app.coborrower_photo_id ? await (async () => {
+            const f = await one(`SELECT thumb_s3_key, s3_key FROM file_object WHERE id=$1`,
+              [app.coborrower_photo_id]);
+            return f ? { fileId: Number(app.coborrower_photo_id),
+              preview: await viewUrl(f.thumb_s3_key || f.s3_key).catch(() => null),
+              url: await viewUrl(f.s3_key).catch(() => null), kb: 0 } : null;
+          })() : null,
           ornamentPhotos: await Promise.all(photos.map(async p => ({
             fileId: Number(p.file_id),
             preview: await viewUrl(p.thumb_s3_key || p.s3_key).catch(() => null),

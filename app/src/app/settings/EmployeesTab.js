@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import DateInput from "@/components/DateInput.js";
 import SavedToast from "@/app/ui/SavedToast.js";
 import PhotoInput from "@/components/PhotoInput.js";
 
@@ -229,8 +230,8 @@ export default function EmployeesTab() {
               attributed to them. Reactivation is one button — nothing is deleted.</div>
             <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: 12 }}>
               <div><span style={F}>Date of leaving *</span>
-                <input type="date" style={I} value={action.dol}
-                  onChange={e => setAction({ ...action, dol: e.target.value })} /></div>
+                <DateInput style={I} value={action.dol}
+                  onChange={v => setAction({ ...action, dol: v })} /></div>
               <div><span style={F}>Reason · min 5 characters *</span>
                 <input style={I} value={action.reason} placeholder="e.g. Resigned, last day 31 Aug"
                   onChange={e => setAction({ ...action, reason: e.target.value })} /></div>
@@ -285,7 +286,7 @@ export default function EmployeesTab() {
                 {data.enums.genders.map(g => <option key={g} value={g}>{g}</option>)}
               </select></div>
             <div><span style={F}>Date of birth</span>
-              <input type="date" style={I} value={w.dob} onChange={setW("dob")} /></div>
+              <DateInput style={I} value={w.dob} onChange={v => setW("dob")({ target: { value: v } })} /></div>
             <div><span style={F}>Blood group</span>
               <select style={I} value={w.bloodGroup} onChange={setW("bloodGroup")}>
                 <option value="">—</option>{BLOOD.map(b => <option key={b}>{b}</option>)}
@@ -339,7 +340,7 @@ export default function EmployeesTab() {
                   {(data.departments || []).map(d => <option key={d} value={d} />)}
                 </datalist></div>
               <div><span style={F}>Date of joining *</span>
-                <input type="date" style={I} value={w.doj} onChange={setW("doj")} /></div>
+                <DateInput style={I} value={w.doj} onChange={v => setW("doj")({ target: { value: v } })} /></div>
               <div><span style={F}>Employment type</span>
                 <select style={I} value={w.employmentType} onChange={setW("employmentType")}>
                   <option value="">permanent (default)</option>

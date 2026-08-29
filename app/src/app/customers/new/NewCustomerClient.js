@@ -1,5 +1,6 @@
 "use client";
 import { useState, useMemo } from "react";
+import DateInput from "@/components/DateInput.js";
 import PhotoInput from "@/components/PhotoInput.js";
 import { validateNewCustomer, blacklistState, isMobile, isAadhaar, isPan, isGst,
          isIfsc, isPincode } from "@/lib/customer.js";
@@ -214,8 +215,8 @@ export default function NewCustomerClient({ docTypes, prefill, mode = "create",
             <F label="Last name *"><input className="i" value={c.lastName}
               onChange={e => set({ lastName: e.target.value })}
               onBlur={e => set({ lastName: titleCaseName(e.target.value) })} /></F>
-            <F label="Date of birth *"><input className="i" type="date" value={c.dob}
-              onChange={e => set({ dob: e.target.value })} /></F>
+            <F label="Date of birth *"><DateInput value={c.dob}
+              onChange={v => set({ dob: v })} /></F>
             <F label="Gender *"><select className="i" value={c.gender}
               onChange={e => set({ gender: e.target.value })}>
               <option value="">— select —</option>
@@ -232,8 +233,8 @@ export default function NewCustomerClient({ docTypes, prefill, mode = "create",
             <F label={`Aadhaar number ${aadhaarStar}`} hint={aadhaarHint}>
               <div style={{ display: "flex", gap: 6 }}>
                 <input className="i mono" inputMode="numeric" maxLength={14}
-                  placeholder={c.aadhaarLast4
-                    ? `on file ••••${c.aadhaarLast4} — type full number to replace`
+                  placeholder={c.aadhaarLast4 && !c.aadhaar
+                    ? `on file ••••${c.aadhaarLast4} — full number not yet captured, type to store`
                     : "1234 1234 1234"}
                   style={{ letterSpacing: ".06em" }} value={formatAadhaar(c.aadhaar)}
                   onChange={e => { set({ aadhaar: cleanAadhaar(e.target.value), aadhaarVerified: false });
@@ -339,7 +340,7 @@ export default function NewCustomerClient({ docTypes, prefill, mode = "create",
           <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
             <IdRow label="Aadhaar"
               value={c.aadhaar ? formatAadhaar(c.aadhaar)
-                : c.aadhaarLast4 ? `••••${c.aadhaarLast4} (on file)` : "not entered"}
+                : c.aadhaarLast4 ? `••••${c.aadhaarLast4} (full number not yet captured)` : "not entered"}
               dim={!c.aadhaar && !c.aadhaarLast4} ok={c.aadhaarVerified} scans={c.aadhaarScans}
               onScans={f => set({ aadhaarScans: f })} />
             <IdRow label="PAN" value={c.pan || "not entered"} dim={!c.pan} ok={c.panVerified}

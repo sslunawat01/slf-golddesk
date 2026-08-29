@@ -53,7 +53,9 @@ export async function POST(req, { params }) {
 
     const full = await one(`SELECT * FROM customer WHERE id=$1`, [cust.id]);
     const aadhaar = String(b.aadhaar || "").replace(/\D/g, "");
-    const aadhaarChanged = aadhaar.length === 12 && aadhaar.slice(-4) !== full.aadhaar_last4;
+    // E21 №2: full number is the identity now — changed when it differs from
+    // the stored full number (or when no full number was on file yet)
+    const aadhaarChanged = aadhaar.length === 12 && aadhaar !== (full.aadhaar_no || "");
     const pan = String(b.pan || "").trim().toUpperCase();
     const panChanged = !!pan && pan !== (full.pan_no || "");
 
@@ -64,14 +66,23 @@ export async function POST(req, { params }) {
       if (dc) return NextResponse.json({ ok: false,
         reason: `Already a customer with this PAN — ${dc.full_name} (${dc.cust_no}).` }, { status: 409 });
     }
+    // E21 №2: mobile and full Aadhaar never repeat across customers — hard
+    const dm2 = await one(`SELECT full_name, cust_no FROM customer
+                            WHERE mobile=$1 AND id<>$2 LIMIT 1`, [mobile, cust.id]);
+    if (dm2) return NextResponse.json({ ok: false,
+      reason: `This mobile already belongs to ${dm2.full_name} (${dm2.cust_no}) — mobile numbers never repeat (app login)` }, { status: 409 });
+    if (aadhaarChanged) {
+      const da2 = await one(`SELECT full_name, cust_no FROM customer
+                              WHERE aadhaar_no=$1 AND id<>$2 LIMIT 1`, [aadhaar, cust.id]);
+      if (da2) return NextResponse.json({ ok: false,
+        reason: `This Aadhaar already belongs to ${da2.full_name} (${da2.cust_no}) — identity numbers never repeat` }, { status: 409 });
+    }
     if ((aadhaarChanged || panChanged) && !b.dupAcknowledged) {
       const hits = [];
       if (aadhaarChanged) {
         const de = await one(`SELECT full_name, emp_code FROM employee WHERE aadhaar_no=$1 LIMIT 1`, [aadhaar]);
         if (de) hits.push(`employee ${de.full_name} (${de.emp_code}) has this Aadhaar`);
-        const dc2 = await one(`SELECT full_name, cust_no FROM customer
-                                WHERE aadhaar_last4=$1 AND id<>$2 LIMIT 1`, [aadhaar.slice(-4), cust.id]);
-        if (dc2) hits.push(`customer ${dc2.full_name} (${dc2.cust_no}) shares these Aadhaar digits`);
+        // E21: same-table matching is hard on the full number above
       }
       if (panChanged) {
         const de2 = await one(`SELECT full_name, emp_code FROM employee WHERE upper(pan_no)=$1 LIMIT 1`, [pan]);
@@ -88,6 +99,7 @@ export async function POST(req, { params }) {
                   mobile=$7, alt_mobile=$8, email=$9, risk=COALESCE($10::risk_band, risk),
                   gstin=$11, max_open_loans=$12, max_outstanding_paise=$13,
                   aadhaar_last4=COALESCE($14, aadhaar_last4),
+                  aadhaar_no=COALESCE($17, aadhaar_no),
                   pan_no=COALESCE($15, pan_no), updated_at=now(), updated_by=$16
             WHERE id=$1`,
           [cust.id, first, String(b.middleName || "").trim() || null, last, b.gender, b.dob,
@@ -96,7 +108,7 @@ export async function POST(req, { params }) {
            String(b.gstin || "").trim().toUpperCase() || null,
            Number(b.maxOpenLoans) || 0, Number(b.maxOutstandingPaise) || 0,
            aadhaarChanged ? aadhaar.slice(-4) : null, panChanged ? pan : null,
-           actor.employeeId]);
+           actor.employeeId, aadhaarChanged ? aadhaar : null]);
 
         const upAddr = async (kind, a, same) => {
           const va3 = validAddress(a);

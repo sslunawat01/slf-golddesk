@@ -62,7 +62,9 @@ export default async function EditCustomerPage({ params, searchParams }) {
     firstName: c.first_name || "", middleName: c.middle_name || "", lastName: c.last_name || "",
     dob: c.dob ? String(c.dob).slice(0, 10) : "", gender: c.gender || "",
     custType: c.cust_type || "individual",
-    aadhaar: "", aadhaarVerified: !!c.aadhaar_verified_at, aadhaarScans: [],
+    // E21 №2 (owner override): the full number is stored and SHOWN fully.
+    // Legacy rows (created before today) hold only last-4 until retyped.
+    aadhaar: c.aadhaar_no || "", aadhaarVerified: !!c.aadhaar_verified_at, aadhaarScans: [],
     aadhaarLast4: c.aadhaar_last4 || "",
     pan: c.pan_no || "", panVerified: !!c.pan_verified_at, panScans: [],
     gstin: c.gstin || "", gstVerified: !!c.gstin,
@@ -114,7 +116,8 @@ export default async function EditCustomerPage({ params, searchParams }) {
         ← Back to customer</a>
       <p className="mono" style={{ color: "var(--mut)", fontSize: 13, margin: "0 0 12px" }}>
         {c.cust_no} · customer number never changes
-        {existing.aadhaarLast4 ? ` · Aadhaar on file ••••${existing.aadhaarLast4}` : ""}
+        {existing.aadhaar ? ` · Aadhaar ${existing.aadhaar}`
+          : existing.aadhaarLast4 ? ` · Aadhaar on file ••••${existing.aadhaarLast4} (full number not yet captured — retype to store it)` : ""}
         {mode === "view" ? " · view only" : ""}
       </p>
       <NewCustomerClient docTypes={docTypes.map(d => ({ id: Number(d.id), name: d.name,

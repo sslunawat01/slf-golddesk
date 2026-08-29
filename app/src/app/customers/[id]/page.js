@@ -28,7 +28,7 @@ export default async function Customer360({ params, searchParams }) {
     || can(actor, "edit_customer", { need: "full" }).ok);
   const canCollect = actor && can(actor, "collect", { need: "full" }).ok;
 
-  const [ photo, addresses, docs, nominee, banks, loans, pendingApps, closed ] = await Promise.all([
+  const [ photo, addresses, docs, nominee, banks, proofRows, loans, pendingApps, closed ] = await Promise.all([
     one(`SELECT f.s3_key, f.thumb_s3_key FROM customer_photo p JOIN file_object f ON f.id = p.file_id
           WHERE p.customer_id = $1 AND p.is_current ORDER BY p.captured_at DESC LIMIT 1`, [id]),
     q(`SELECT kind, line1, line2, pincode, area, taluka, district, state FROM customer_address
@@ -44,6 +44,11 @@ export default async function Customer360({ params, searchParams }) {
          FROM customer_bank_account ba
          LEFT JOIN file_object pf ON pf.id = ba.cheque_file_id
         WHERE ba.customer_id = $1 ORDER BY ba.id`, [id]),
+    q(`SELECT p.id, p.account_id, p.added_at, f.thumb_s3_key AS thumb_key, f.s3_key AS key
+         FROM customer_bank_proof p JOIN file_object f ON f.id = p.file_id
+        WHERE p.removed_at IS NULL
+          AND p.account_id IN (SELECT id FROM customer_bank_account WHERE customer_id=$1)
+        ORDER BY p.id DESC`, [id]),
     q(`SELECT l.id, l.loan_no, l.principal_paise, l.disbursed_at, l.scheme_version_id,
               s.code AS scheme,
               (CURRENT_DATE - l.disbursed_at)::int + 1 AS age_days,  -- R-L inclusive
@@ -201,7 +206,7 @@ export default async function Customer360({ params, searchParams }) {
                     <b className="mono" style={{ fontSize: 13.5 }}>
                       ₹{Math.round(Number(a.requested_paise || 0) / 100).toLocaleString("en-IN")}</b>
                     <span style={{ color: "var(--mut)", fontSize: 12 }}>
-                      · {a.made_on} · {mine ? "open →"
+                      · {dmy(a.made_on)} · {mine ? "open →"
                         : `at ${a.branch_code} — switch branch to open`}</span>
                   </>);
                   return mine
@@ -264,6 +269,12 @@ export default async function Customer360({ params, searchParams }) {
                 proofThumb: b.proof_thumb_key || b.proof_key
                   ? await viewUrl(b.proof_thumb_key || b.proof_key).catch(() => null) : null,
                 proofFull: b.proof_key ? await viewUrl(b.proof_key).catch(() => null) : null,
+                proofs: await Promise.all(proofRows
+                  .filter(pr => Number(pr.account_id) === Number(b.id))
+                  .map(async pr => ({ id: Number(pr.id),
+                    thumb: await viewUrl(pr.thumb_key || pr.key).catch(() => null),
+                    full: await viewUrl(pr.key).catch(() => null),
+                    addedAt: String(pr.added_at).slice(0, 10) }))),
                 verifiedAt: b.verified_at ? String(b.verified_at) : null })))} />
           </div>
 

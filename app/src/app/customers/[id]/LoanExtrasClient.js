@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import DateInput from "@/components/DateInput.js";
 import PhotoInput from "@/components/PhotoInput.js";
 import { METHODS } from "@/lib/overdue.js";
 
@@ -62,8 +63,8 @@ export default function LoanExtrasClient({ loanId, outcomes, today, canCollect }
               {outcomes.map(o => <option key={o} value={o}>{o}</option>)}
             </select></div>
           <div style={{ flex: "0 0 140px" }}><span style={F}>Next follow-up</span>
-            <input type="date" min={today} style={I} value={fu.nextFollowUp}
-              onChange={e => setFu({ ...fu, nextFollowUp: e.target.value })} /></div>
+            <DateInput min={today} style={I} value={fu.nextFollowUp}
+              onChange={v => setFu({ ...fu, nextFollowUp: v })} /></div>
           <div style={{ flex: 1, minWidth: 150 }}><span style={F}>Narration</span>
             <input style={I} value={fu.narration}
               onChange={e => setFu({ ...fu, narration: e.target.value })} /></div>

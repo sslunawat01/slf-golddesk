@@ -90,3 +90,10 @@ export function rupeesInWords(rupees) {
   if (n) parts.push(threeDigits(n));
   return parts.join(" ");
 }
+
+/** E20 №1: the ONE date display — DD-MM-YYYY, everywhere. */
+export const dmy = (d) => {
+  if (!d) return "—";
+  const s2 = String(d).slice(0, 10).split("-");
+  return s2.length === 3 ? `${s2[2]}-${s2[1]}-${s2[0]}` : String(d);
+};
