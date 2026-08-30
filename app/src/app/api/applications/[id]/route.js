@@ -32,6 +32,7 @@ export async function PATCH(req, { params }) {
       ? await one(`SELECT id, funding_pct FROM scheme_version WHERE id=$1`, [app.scheme_version_id])
       : null;
 
+  try {
   await tx(async (cl) => {
     await cl.query(
       `UPDATE loan_application SET scheme_version_id=COALESCE($2,scheme_version_id),
@@ -68,13 +69,28 @@ export async function PATCH(req, { params }) {
     }
 
     if (Array.isArray(body.items)) {
+      // A2 (owner, 30 Aug 2026; O7 resolved): each item prices off ITS metal's
+      // snapshotted pair. Metal 1 falls back to the legacy application columns.
+      const rateRows = await cl.query(
+        `SELECT metal_id, base_paise, funding_paise FROM application_rate
+          WHERE application_id=$1`, [id]);
+      const pairOf = new Map(rateRows.rows.map(x => [Number(x.metal_id),
+        { base: Number(x.base_paise), funding: Number(x.funding_paise) }]));
+      if (!pairOf.has(1) && app.base_paise_snapshot != null)
+        pairOf.set(1, { base: Number(app.base_paise_snapshot),
+          funding: Number(app.funding_paise_snapshot ?? app.base_paise_snapshot) });
       await cl.query(`DELETE FROM appraisal_item WHERE application_id=$1`, [id]);
       for (const r of body.items) {
         if (!r.itemId || !(r.grossMg > 0) || !r.purityId) continue;
-        const pur = await one(`SELECT purity_pct FROM purity WHERE id=$1`, [r.purityId]);
+        const pur = await one(`SELECT purity_pct, metal_id FROM purity WHERE id=$1`, [r.purityId]);
+        const pair = pairOf.get(Number(pur.metal_id));
+        if (!pair) {
+          const e = new Error("No rate pair for that metal was in force when this pledge started — publish it on the HQ rate board, then start a fresh pledge");
+          e.unrated = true; throw e;
+        }
         const v = ornamentValue({ grossMg: Number(r.grossMg), stoneMg: Number(r.stoneMg || 0),
-          purityPct: Number(pur.purity_pct), base24kPaise: Number(app.base_paise_snapshot),
-          funding24kPaise: Number(app.funding_paise_snapshot ?? app.base_paise_snapshot),
+          purityPct: Number(pur.purity_pct), base24kPaise: pair.base,
+          funding24kPaise: pair.funding,
           fundingPct: Number(scheme?.funding_pct ?? 0) });
         await cl.query(
           `INSERT INTO appraisal_item (application_id, item_id, qty, gross_mg, stone_mg, purity_id,
@@ -91,6 +107,11 @@ export async function PATCH(req, { params }) {
           [id, fid, i + 1]);
     }
   }, { entityIds: actor.entityIds });
+  } catch (e) {
+    if (e.unrated) return NextResponse.json({ ok: false, reason: e.message }, { status: 409 });
+    console.error("[applications] save failed", e);
+    return NextResponse.json({ ok: false, reason: "Could not save — nothing was written" }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true, deapproved: creatorEditingApproved });
 }

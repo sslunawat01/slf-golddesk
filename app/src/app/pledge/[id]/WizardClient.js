@@ -3,12 +3,13 @@ import { useState, useMemo } from "react";
 import PhotoInput from "@/components/PhotoInput.js";
 import { ornamentValue, appraisalTotals, validPrincipal, valuerRule,
          disbursementPlan, docCharge, inr, bankRemainder } from "@/lib/valuation.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const g = (mg) => (Number(mg || 0) / 1000).toFixed(3);
 const mg = (grams) => Math.round(Number(grams || 0) * 1000);
 
 export default function WizardClient({ app, customer, items, purities, schemes, itemMaster, valuers,
-                                       banks, slfAccounts, ceilingPaise, base24k, funding24k,
+                                       banks, slfAccounts, ceilingPaise, rates = {},
                                        valuer2Threshold, canDisburse, youApproved = false, metals = [], ratedMetalId = 1,
                                        mayAppraise = true, sentBack = null, isCreator = false }) {
   // №9 (owner, 29 Aug 2026): even an approved file opens at tab 1 — the
@@ -57,16 +58,19 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   const priced = useMemo(() => rows.map(r => {
     const p = purities.find(x => String(x.id) === String(r.purityId));
-    // The application snapshots ONE rate pair. Until a metal has its own snapshot we
-    // refuse to price it rather than quietly using the gold rate (O7 still open).
-    const unrated = String(r.metalId) !== String(ratedMetalId);
+    // A2 (owner, 30 Aug 2026; O7 resolved): each metal prices off ITS OWN
+    // snapshotted pair. A metal with no pair on this application (no rate
+    // was in force when the pledge started) still refuses to price rather
+    // than quietly borrowing the gold rate.
+    const pair = rates[Number(r.metalId)] || rates[String(r.metalId)];
+    const unrated = !pair;
     const liveNetMg = Math.max(0, mg(r.gross) - mg(r.stone));   // №1: net = gross − stone, immediately; stone may be 0
     if (unrated) return { ...r, netMg: liveNetMg, marketPaise: 0, fundingPaise: 0, unrated: true };
     if (!r.itemId || !r.gross || !p) return { ...r, netMg: liveNetMg, marketPaise: 0, fundingPaise: 0 };
     const v = ornamentValue({ grossMg: mg(r.gross), stoneMg: mg(r.stone), purityPct: Number(p.purityPct),
-      base24kPaise: base24k, funding24kPaise: funding24k, fundingPct });
+      base24kPaise: pair.basePaise, funding24kPaise: pair.fundingPaise, fundingPct });
     return { ...r, ...v, grossMg: mg(r.gross), stoneMg: mg(r.stone) };
-  }), [rows, purities, fundingPct, base24k, funding24k, ratedMetalId]);
+  }), [rows, purities, fundingPct, rates]);
   const anyUnrated = priced.some(r => r.unrated);
 
   const totals = appraisalTotals(priced);
@@ -272,8 +276,8 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
             onClick={() => setRows([...rows, newRow()])}>+ Add ornament</button>
 
           {anyUnrated && <div style={{ marginTop: 12 }}>
-            <span className="chip warn">a rate pair for that metal is not yet published — silver pricing
-              is still an open decision (O7), so those rows cannot be valued</span></div>}
+            <span className="chip warn">no rate pair for that metal was in force when this pledge
+              started — publish it on the HQ rate board, then start a fresh pledge</span></div>}
 
           {!schemeId && <div style={{ marginTop: 12 }}>
             <span className="chip warn">choose a scheme in step 2 — funding value needs its percentage</span></div>}
@@ -632,6 +636,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
         </div>
       </div>
       {chip && <div style={{ marginTop: 10 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
+      <TopNotice notice={chip} onClose={() => setChip(null)} />
 
       <style>{`.pill{display:inline-flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;
         background:#faf9f4;border:1px solid var(--line);padding:9px 13px;border-radius:11px;cursor:pointer}

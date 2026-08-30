@@ -2,6 +2,7 @@
 import { Fragment, useEffect, useState } from "react";
 import SavedToast from "@/app/ui/SavedToast.js";
 import { FUNCTION_LABELS, DAY_PRESETS, presetForDays } from "@/lib/roles.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -334,6 +335,7 @@ export default function RolesTab() {
           <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center",
             gap: 12, marginTop: 20, borderTop: "1px solid #f0ede4", paddingTop: 14 }}>
             {err && <span className="chip bad">{err}</span>}
+            <TopNotice notice={err} onClose={() => setErr(null)} />
             {saved && !err && <span className="chip ok">Saved — live sessions pick it up in seconds</span>}
             <button className="btn" disabled={busy} onClick={saveAll}>
               {busy ? "Saving…" : "Save " + role.name}</button>

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { slaBand } from "@/lib/release.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const dmy = (d) => { const [y, m, dd] = String(d).split("-"); return `${dd}-${m}-${y}`; };
 const BANDS = ["All", "Within SLA", "Day 5–6", "Day 7+"];
@@ -16,7 +17,7 @@ export default function ReleaseListClient() {
       .catch(() => setErr("Could not load the release list"));
   }, []);
 
-  if (err) return <div className="card"><span className="chip bad">{err}</span></div>;
+  if (err) return <div className="card"><TopNotice notice={err} onClose={() => setErr(null)} /><span className="chip bad">{err}</span></div>;
   if (!data) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
 
   const shown = data.rows.filter(r => filter === "All" || slaBand(r.slaDay) === filter);

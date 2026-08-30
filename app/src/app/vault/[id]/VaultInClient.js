@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import PhotoInput from "@/components/PhotoInput.js";
 import { mgToGrams, qrPayload, MISMATCH_REASONS, MIN_NARRATION } from "@/lib/vault.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const today = () => new Date().toLocaleDateString("en-GB").replace(/\//g, "-");
 
@@ -146,6 +147,7 @@ export default function VaultInClient({ packetId }) {
         Single-user action per policy. Logged against your login with a timestamp.</p>
 
       {err && <div style={{ marginTop: 12 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       <div style={{ marginTop: 18, display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         <button className="btn" disabled={!ready || busy}

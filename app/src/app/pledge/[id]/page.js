@@ -64,6 +64,20 @@ export default async function PledgePage({ params }) {
     q(`SELECT id, kind FROM metal WHERE enabled ORDER BY id`),
   ]);
 
+  // A2 (owner, 30 Aug 2026): the application's per-metal rate snapshots.
+  // Older applications predate the table — migration 029 backfilled gold,
+  // and the legacy columns below remain the gold fallback.
+  const rateRows = await q(
+    `SELECT metal_id, base_paise, funding_paise FROM application_rate
+      WHERE application_id = $1`, [id]);
+  const ratesByMetal = {};
+  for (const r of rateRows)
+    ratesByMetal[Number(r.metal_id)] = { basePaise: Number(r.base_paise),
+      fundingPaise: Number(r.funding_paise) };
+  if (!ratesByMetal[1] && app.base_paise_snapshot != null)
+    ratesByMetal[1] = { basePaise: Number(app.base_paise_snapshot),
+      fundingPaise: Number(app.funding_paise_snapshot ?? app.base_paise_snapshot) };
+
   const authority = sanctionAuthority(actor);
   const youApproved = await one(
     `SELECT 1 FROM loan_state_history
@@ -111,7 +125,7 @@ export default async function PledgePage({ params }) {
           purityId: String(i.purity_id), narration: i.narration || "" }))}
         purities={purities.map(p => ({ ...p, id: Number(p.id), metalId: Number(p.metalId) }))}
         metals={metals.map(m => ({ id: Number(m.id), kind: m.kind }))}
-        ratedMetalId={1}
+        rates={ratesByMetal}
         schemes={schemes.map(s => ({ ...s, id: Number(s.id) }))}
         itemMaster={itemMaster.map(i => ({ ...i, id: Number(i.id), metalId: Number(i.metalId) }))}
         valuers={valuers.map(v => ({ ...v, id: Number(v.id) }))}

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { rupeesInWords } from "@/lib/format.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const inr = (r) => "₹" + Math.round(Number(r || 0)).toLocaleString("en-IN");
 const dmy = (d) => { const [y, m, dd] = String(d).split("-"); return `${dd}-${m}-${y}`; };
@@ -334,6 +335,7 @@ export default function RepayClient({ loanId }) {
         </div>
 
         {err && <div style={{ marginTop: 12 }}><span className="chip bad">{err}</span></div>}
+        <TopNotice notice={err} onClose={() => setErr(null)} />
 
         <div style={{ marginTop: 18 }}>
           <button className="btn"

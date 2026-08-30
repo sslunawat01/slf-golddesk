@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { bucketCounts, vaultInBucket, mgToGrams } from "@/lib/vault.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const dmy = (d) => { const [y, m, dd] = String(d).split("-"); return `${dd}-${m}-${y}`; };
 
@@ -15,7 +16,7 @@ export default function VaultListClient() {
       .catch(() => setErr("Could not load the vault list"));
   }, []);
 
-  if (err) return <div className="card"><span className="chip bad">{err}</span></div>;
+  if (err) return <div className="card"><TopNotice notice={err} onClose={() => setErr(null)} /><span className="chip bad">{err}</span></div>;
   if (!data) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
 
   const waiting = data.rows.filter(r => r.status === "at_counter");

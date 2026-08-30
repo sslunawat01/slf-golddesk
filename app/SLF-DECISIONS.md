@@ -468,3 +468,73 @@ Lessons: an ExecStart path is a fact to verify on the target machine, not a
 convention to assume; and any script that bypasses lib/db.js must set the
 entity wall itself — the wall fails CLOSED, and closed looks exactly like
 "no data" (the vacuous-green class again, now in SQL form).
+
+**E21 owner browser walk — confirmed 30 Aug 2026:** full Aadhaar displayed,
+camera rotate/crop working, party photos survive reopen. (Duplicate refusal
+was separately proven and hardened under E22 the same day.)
+
+---
+
+## E24 — owner ledger rulings of 30 Aug 2026
+
+№1 both blank №11s: DEAD — struck. №5 O13 RESOLVED: R-I stands, the penal
+grace cliff is accepted (day 372 pays ₹0, day 373 pays from tenure end).
+№6 O5 RESOLVED: release print on A4, Marathi (regional) font required —
+print-layout build to honour both. №7 SMS provider stays pending. №8 the
+three SLF bank accounts remain dummy data by owner's word. №10 Chaitali's
+real mobile entered by owner. №4/№9/№11 shipped as
+scripts/datafix-20260830.mjs (idempotent, prints everything it touches):
+deactivate any safe labelled/located "Deolali" (none in the 29 Aug dump —
+the script reports what it finds on production); GL2070 v3/v4/v5 carried
+effective_to 27 Aug BEFORE effective_from 28 Aug — end set equal to start
+(v6 is the live open-ended version; the E15 "expired scheme" flag was
+stale data, superseded versions were made for tests); the HO-branch walk
+applications (APP-999-26-0002…0008) cancelled with history notes — day
+cycles never run for HO so №7 could never reach them.
+
+---
+
+## E25 — messages at the top of the screen (owner order, 30 Aug 2026; D-G)
+
+Every refusal and suggestion now ALSO appears in a fixed banner at the top
+of the screen (src/app/ui/TopNotice.js: red for errors, amber for warnings,
+✕ to dismiss, holds until dismissed or replaced) — no more scrolling to find
+out why a save refused. Wired into 22 screens: both wizards (save, submit,
+tab moves), collect, add-charge, day begin/end, vault list + vault-in,
+release list + release, overdue, bank panels, follow-ups, set-password,
+new-pledge button, all eight settings tabs, and the rate board. Field-level
+chips stay where they are — the banner says THAT something refused, the chip
+says WHERE; successes stay with the green SavedToast. PhotoInput's upload
+errors stay at the widget (it mounts many times per screen — a fixed banner
+per instance would stack). The frozen UX has no such banner — recorded as
+owner override D-G. Walked twice headless (scripts/walk-topnotice.mjs):
+banner appears once, carries the refusal text, y=64, survives scrolling,
+dismisses; every touched screen re-opened. Battery 19/19.
+
+Local-sandbox note: the local app role now carries BYPASSRLS to mirror
+production (the app's own one/q set no entity context; production's user
+owns the tables). Scripts that must work under EITHER user keep setting
+app.entity_ids='ALL' explicitly (E23).
+
+---
+
+## E26 — every metal its own rates (owner GO, 30 Aug 2026; O7 RESOLVED, V8 amended)
+
+A1: on the rate board, typing a market rate fills funding at 10% below,
+floored to ₹100 (conservative — Claude's default, flagged); a hand-typed
+funding figure stops the auto-fill for the visit. A2: migration 029 adds
+application_rate — an application snapshots the in-force pair of EVERY
+unlinked enabled metal at creation (gold backfilled for all 75 existing
+apps; the legacy gold columns stay written for compatibility). The wizard
+and the items PATCH price each ornament off ITS metal's snapshotted pair;
+a metal with no pair in force when the pledge started refuses to price on
+BOTH layers (client chip + API 409) — never borrows the gold rate. Silver
+purities corrected to 99/80 (% of silver's own rate; legacy rows were
+1.75/1.25% OF GOLD — datafix №3; zero silver items existed, and every item
+snapshots its pct and rupee figures anyway). Walked twice end-to-end:
+silver pair published → application 76 snapshots both pairs → 100g
+Silver99 prices ₹11,88,000 and 10g 22K ₹1,13,200 (hand figures) → UI shows
+both, auto-fill 9050→8100 proven, hand-typed funding survives. Battery
+19/19. NOTE: production has no silver rate row yet — the owner publishes
+silver's first pair on the board after deploy; until then silver still
+politely refuses (correct).

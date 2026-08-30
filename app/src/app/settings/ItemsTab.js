@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import SavedToast from "@/app/ui/SavedToast.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -70,6 +71,7 @@ export default function ItemsTab() {
       </div>
 
       {err && <div style={{ marginBottom: 10 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 680 }}>

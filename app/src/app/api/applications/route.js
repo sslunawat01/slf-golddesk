@@ -51,6 +51,13 @@ export async function POST(req) {
        VALUES ($1,$2,$3,$4,'draft',CURRENT_DATE,$5,$6,$7) RETURNING id`,
       [appNo, actor.actingBranch.entityId, actor.actingBranchId, customerId,
        rate.base_paise, rate.funding_paise, actor.employeeId]);
+    // A2 (owner, 30 Aug 2026; resolves O7): snapshot the in-force pair of
+    // EVERY metal that carries its own rates, so silver prices off silver.
+    await cl.query(
+      `INSERT INTO application_rate (application_id, metal_id, base_paise, funding_paise)
+       SELECT $1, m.id, r.base_paise, coalesce(r.funding_paise, r.base_paise)
+         FROM metal m CROSS JOIN LATERAL rate_in_force(m.id, CURRENT_DATE) r
+        WHERE m.enabled AND NOT m.valued_as_pct_of_gold`, [a.id]);
     await cl.query(`INSERT INTO loan_state_history (application_id, to_state, by_employee, note)
                     VALUES ($1,'draft',$2,'pledge started')`, [a.id, actor.employeeId]);
     await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,

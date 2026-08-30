@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 /** Starts (or resumes) a pledge, then opens the wizard. Any refusal is shown verbatim. */
 export default function NewPledgeButton({ customerId }) {
@@ -26,6 +27,7 @@ export default function NewPledgeButton({ customerId }) {
         {busy ? "Starting…" : "+ New pledge"}
       </button>
       {err && <div style={{ marginTop: 8 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
     </div>
   );
 }

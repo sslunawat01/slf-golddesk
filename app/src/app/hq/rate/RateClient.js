@@ -1,6 +1,7 @@
 "use client";
 import { useState , useEffect} from "react";
 import SavedToast from "@/app/ui/SavedToast.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 const inr = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
 const inr0 = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
 
@@ -10,6 +11,12 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
   const [funding, setFunding] = useState(inForce ? String(Math.round(inForce.fundingPaise / 100)) : "");
   const [chip, setChip] = useState(null);
   const [busy, setBusy] = useState(false);
+  // A1 (owner, 30 Aug 2026): typing a market rate fills funding at 10% below,
+  // rounded DOWN to ₹100 (conservative). Editable — a hand-typed funding
+  // figure stops the auto-fill for the rest of the visit.
+  const [fundingAuto, setFundingAuto] = useState(true);
+  const autoFund = (mv) => { const n = Math.floor((Number(mv || 0) * 0.9) / 100) * 100;
+    return n > 0 ? String(n) : ""; };
   const [savedAt, setSavedAt] = useState(0);   // №4
   useEffect(() => {
     if (window.location.search.includes("saved=1")) {
@@ -92,7 +99,8 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
               <label className="f">{metalName} · market rate ₹/g *</label>
               <input className="i mono" inputMode="decimal" value={market} placeholder={metalId === 1 ? "12040" : ""}
                 style={{ fontSize: 20, height: 52 }}
-                onChange={e => setMarket(e.target.value.replace(/[^\d.]/g, ""))} />
+                onChange={e => { const v = e.target.value.replace(/[^\d.]/g, "");
+                  setMarket(v); if (fundingAuto) setFunding(autoFund(v)); }} />
               <div className="hint" style={{ marginTop: 6 }}>what the ornament is worth at today's market</div>
             </div>
             <div>
@@ -100,8 +108,8 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
               <input className="i mono" inputMode="decimal" value={funding} placeholder={metalId === 1 ? "11290" : ""}
                 style={{ fontSize: 20, height: 52, color: "#a8791f",
                   borderColor: pairBad ? "var(--bad)" : undefined }}
-                onChange={e => setFunding(e.target.value.replace(/[^\d.]/g, ""))} />
-              <div className="hint" style={{ marginTop: 6 }}>what we lend against — must be below the market rate</div>
+                onChange={e => { setFunding(e.target.value.replace(/[^\d.]/g, "")); setFundingAuto(false); }} />
+              <div className="hint" style={{ marginTop: 6 }}>fills at 10% below the market rate — change it if needed; must stay below market</div>
             </div>
           </div>
 
@@ -124,6 +132,7 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
         </div>)}
 
       {chip && <div style={{ marginTop: 12 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
+      <TopNotice notice={chip} onClose={() => setChip(null)} />
 
       {m > 0 && f > 0 && !pairBad && (<>
         <h2 style={{ fontSize: 15, fontWeight: 800, margin: "24px 0 10px" }}>

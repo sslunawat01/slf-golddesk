@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import DateInput from "@/components/DateInput.js";
 import SavedToast from "@/app/ui/SavedToast.js";
 import PhotoInput from "@/components/PhotoInput.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -189,6 +190,7 @@ export default function EmployeesTab() {
       )}
 
       {err && <div style={{ marginBottom: 10 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       {/* ——— the list ——— */}
       {!wiz && (

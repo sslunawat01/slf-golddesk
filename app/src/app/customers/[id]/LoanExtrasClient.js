@@ -3,6 +3,7 @@ import { useState } from "react";
 import DateInput from "@/components/DateInput.js";
 import PhotoInput from "@/components/PhotoInput.js";
 import { METHODS } from "@/lib/overdue.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -92,6 +93,7 @@ export default function LoanExtrasClient({ loanId, outcomes, today, canCollect }
 
       {chip && <div style={{ marginTop: 8 }}>
         <span className={"chip " + chip.tone}>{chip.text}</span></div>}
+      <TopNotice notice={chip} onClose={() => setChip(null)} />
     </div>
   );
 }

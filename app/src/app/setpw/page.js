@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const rules = (p, u) => ([
   ["at least 10 characters", (p || "").length >= 10],
@@ -42,6 +43,7 @@ export default function SetPw() {
             {p === c ? "✓ passwords match" : "passwords do not match"}</span>}
         </div>
         {err && <div><span className="chip bad">{err}</span></div>}
+        <TopNotice notice={err} onClose={() => setErr(null)} />
         <button className="btn green" style={{ width: "100%" }} disabled={!ok || busy}>
           {busy ? "Saving…" : "Set password and continue"}</button>
         <div style={{ fontSize: 12, color: "#7d786c", textAlign: "center" }}>

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { denomTotalPaise } from "@/lib/daycycle.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const inr = (p) => "₹" + Math.round(Number(p || 0) / 100).toLocaleString("en-IN");
 const dmy = (d) => d ? String(d).split("-").reverse().join("-") : "—";
@@ -87,6 +88,7 @@ export default function DayCycleClient() {
 
   return (
     <>
+      <TopNotice notice={err} onClose={() => setErr(null)} />
       <p style={{ color: "var(--mut)", fontSize: 13.5, margin: "0 0 14px", maxWidth: 620 }}>
         A record of every day's cash, signed with your login. Day-begin does not lock the
         counter; variances sign off with a written reason.</p>

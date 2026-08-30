@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import DateInput from "@/components/DateInput.js";
 import SavedToast from "@/app/ui/SavedToast.js";
 import { validSchemeVersion, slabSample } from "@/lib/masters.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -136,6 +137,7 @@ export default function SchemesTab() {
           A loan keeps the version it was sanctioned on for its whole life — superseded
           versions never disappear.</p>
         {err && <div style={{ marginTop: 10 }}><span className="chip bad">{err}</span></div>}
+        <TopNotice notice={err} onClose={() => setErr(null)} />
       </>
     );
   }
@@ -590,6 +592,7 @@ function Wizard({ data, wiz, setWiz, post, busy, err, setErr, reload }) {
       )}
 
       {err && <div style={{ marginTop: 12 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18 }}>
         <button className="btn ghost" disabled={step === 0}

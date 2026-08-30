@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import PhotoInput from "@/components/PhotoInput.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -190,6 +191,7 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
                 refuse until it is verified again</span></div>)}
           {chip && <div style={{ marginTop: 10 }}>
             <span className={"chip " + chip.tone}>{chip.text}</span></div>}
+          <TopNotice notice={chip} onClose={() => setChip(null)} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
             <button className="btn ghost" onClick={() => { setForm(null); setChip(null); }}>Cancel</button>
             <button className="btn" disabled={busy || !form.accountNo || form.ifsc.length !== 11

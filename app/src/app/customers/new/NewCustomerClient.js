@@ -5,6 +5,7 @@ import PhotoInput from "@/components/PhotoInput.js";
 import { validateNewCustomer, blacklistState, isMobile, isAadhaar, isPan, isGst,
          isIfsc, isPincode } from "@/lib/customer.js";
 import { formatAadhaar, cleanAadhaar, formatPan, formatMobile, cleanDigits, formatIfsc , titleCaseName } from "@/lib/format.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 /* Structure follows the frozen UX exactly:
    Identity · Contact (mobile + address) · Documents (KYC + banks) · Nominee · Loan settings */
@@ -557,6 +558,7 @@ export default function NewCustomerClient({ docTypes, prefill, mode = "create",
         </div>
       </div>
       {chip && <div style={{ marginTop: 10 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
+      <TopNotice notice={chip} onClose={() => setChip(null)} />
 
       {confirmDup && (
         <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.6)", display: "grid",

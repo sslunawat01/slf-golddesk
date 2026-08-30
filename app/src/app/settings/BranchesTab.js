@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import SavedToast from "@/app/ui/SavedToast.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const F = { display: "block", fontSize: 10, fontWeight: 800, letterSpacing: ".09em",
   textTransform: "uppercase", color: "var(--mut)", marginBottom: 5 };
@@ -256,6 +257,7 @@ export default function BranchesTab() {
             </label>
           )}
           {err && <div style={{ marginTop: 10 }}><span className="chip bad">{err}</span></div>}
+          <TopNotice notice={err} onClose={() => setErr(null)} />
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14 }}>
             <button className="btn ghost" onClick={() => { setForm(null); setErr(null); }}>Cancel</button>
             <button className="btn" disabled={busy} onClick={save}>

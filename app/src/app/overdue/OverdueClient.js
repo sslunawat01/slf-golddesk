@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import DateInput from "@/components/DateInput.js";
 import { BUCKETS, METHODS, ageTone, daysToNextSlab } from "@/lib/overdue.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const I = { border: "1px solid #cfc9ba", borderRadius: 10, padding: "0 10px",
   height: 42, fontSize: 13.5, background: "#fff", boxSizing: "border-box" };
@@ -112,6 +113,7 @@ export default function OverdueClient() {
       </div>
 
       {err && <div style={{ marginBottom: 10 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       {/* rows */}
       {filtered.length > 0 ? (

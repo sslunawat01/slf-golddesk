@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 const inr = (p) => "₹" + Math.round(Number(p || 0) / 100).toLocaleString("en-IN");
 
@@ -168,6 +169,7 @@ export default function AddChargeClient({ loanId }) {
       </div>
 
       {err && <div style={{ marginTop: 12 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
         <button className="btn" disabled={!ready || busy || !data.canAct}

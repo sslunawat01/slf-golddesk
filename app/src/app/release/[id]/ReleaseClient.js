@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import PhotoInput from "@/components/PhotoInput.js";
+import TopNotice from "@/app/ui/TopNotice.js";
 
 export default function ReleaseClient({ loanId }) {
   const [row, setRow] = useState(null);
@@ -111,6 +112,7 @@ export default function ReleaseClient({ loanId }) {
       </div>
 
       {err && <div style={{ marginTop: 12 }}><span className="chip bad">{err}</span></div>}
+      <TopNotice notice={err} onClose={() => setErr(null)} />
 
       <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
         <button className="btn" disabled={!ready || busy}
