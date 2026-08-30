@@ -433,3 +433,38 @@ dup mobile / dup Aadhaar / dup+ack all 409 naming the owning customer.
 Battery 19/19 green. Lesson: E21's dup-refusal walk exercised the EDIT
 path only — every NEW code path gets its own walk case, including the
 plain no-duplicate submit.
+
+---
+
+## E23 — the first automatic day cycle never ran (journals, 30 Aug 2026)
+
+Both timers fired to the second (23:59:33 / 11:00:33) and both services died
+at launch: the unit files hardcoded /usr/bin/node, which does not exist on
+the server (node lives under nvm; the main service uses /usr/local/bin/node).
+Units fixed to /usr/local/bin/node — the path systemd demonstrably runs.
+
+The post-mortem found a second, worse latent bug: auto-daycycle.mjs opened a
+raw pg pool with NO entity context, and receipt / loan / loan_application sit
+behind the entity RLS wall — every flow sum and the №7 cancel query would
+read ZERO rows for an RLS-bound user (day closed at opening cash, nothing
+cancelled, all silent). Both scripts now take one client and set
+app.entity_ids='ALL' session-wide. Proven locally against the 29 Aug dump:
+before the fix B1's 28-Aug catch-up closed at ₹1,84,500 (opening); after,
+₹1,78,900 (opening + ₹6,400 cash in − ₹12,000 cash out) — the hand figure.
+
+State repair: 28 Aug days for B1 / Head Office / Chinchwad were left open
+(29/30 Aug had no day rows at all — nobody signed begin, and auto-begin's
+first fire was the failed one). One-time scripts/catchup-dayend-20260828.mjs
+closes exactly those three at opening + that day's own flows, stamped
+employee 1, audit action day_end_catchup; refuses a second run. It
+deliberately does NOT cancel applications — tonight's fixed auto-end applies
+№7 in course, leaving the owner the afternoon to disburse keepers.
+
+Data finding: 7 applications (3 draft, 4 appraised) sit ON the Head Office
+branch (999) — day cycles never run for HO, so №7 can never reach them;
+they are walk debris (incl. Sangita's APP-999-26-0002) → delete list.
+
+Lessons: an ExecStart path is a fact to verify on the target machine, not a
+convention to assume; and any script that bypasses lib/db.js must set the
+entity wall itself — the wall fails CLOSED, and closed looks exactly like
+"no data" (the vacuous-green class again, now in SQL form).

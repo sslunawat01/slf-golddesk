@@ -35,7 +35,13 @@ if (!["begin", "end"].includes(mode)) {
 }
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const one = async (t, p) => (await pool.query(t, p)).rows[0] || null;
+// E23 (30 Aug 2026): receipt/loan/loan_application sit behind the entity RLS
+// wall — without app.entity_ids this script reads ZERO rows (cash flows and
+// №7 cancels silently vacuous). One client for the whole run, context set
+// session-wide, exactly the wall lib/db.js documents.
+const cx = await pool.connect();
+await cx.query("SELECT set_config('app.entity_ids', 'ALL', false)");
+const one = async (t, p) => (await cx.query(t, p)).rows[0] || null;
 
 async function carriedForward(branchId) {
   const r = await one(
@@ -57,7 +63,7 @@ async function cashToday(branchId) {
   return { cashReceiptsPaise: Number(rec.p), cashDisbursedPaise: Number(dis.p) };
 }
 
-const branches = (await pool.query(
+const branches = (await cx.query(
   `SELECT id, code, name FROM branch WHERE active AND NOT is_ho ORDER BY id`)).rows;
 let touched = 0;
 
@@ -69,7 +75,7 @@ for (const br of branches) {
     if (cyc?.begin_signed_at) continue;               // a human already did it
     const carry = await carriedForward(br.id);
     const checks = { rate: true, seal: true, queues: true, report: true };
-    const cl = await pool.connect();
+    const cl = cx;
     try {
       await cl.query("BEGIN");
       await cl.query(
@@ -92,7 +98,6 @@ for (const br of branches) {
       console.log(`begin  ${br.code} ${br.name} — opening ₹${(carry / 100).toLocaleString("en-IN")}`);
       touched++;
     } catch (e) { await cl.query("ROLLBACK"); console.error(`begin ${br.code} FAILED:`, e.message); }
-    finally { cl.release(); }
   }
 
   if (mode === "end") {
@@ -100,7 +105,7 @@ for (const br of branches) {
     const opening = Number(cyc.begin_counted_paise);
     const flows = await cashToday(br.id);
     const expected = opening + flows.cashReceiptsPaise - flows.cashDisbursedPaise;
-    const cl = await pool.connect();
+    const cl = cx;
     try {
       await cl.query("BEGIN");
       await cl.query(
@@ -134,8 +139,8 @@ for (const br of branches) {
         (doomed.length ? ` · cancelled ${doomed.length} undisbursed` : ""));
       touched++;
     } catch (e) { await cl.query("ROLLBACK"); console.error(`end ${br.code} FAILED:`, e.message); }
-    finally { cl.release(); }
   }
 }
 console.log(`${mode}: ${touched} branch(es) touched, ${branches.length} checked`);
+cx.release();
 await pool.end();

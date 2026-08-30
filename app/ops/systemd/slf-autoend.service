@@ -6,4 +6,4 @@ After=network-online.target postgresql.service
 Type=oneshot
 User=ubuntu
 WorkingDirectory=/home/ubuntu/slf/app
-ExecStart=/usr/bin/node scripts/auto-daycycle.mjs end
+ExecStart=/usr/local/bin/node scripts/auto-daycycle.mjs end
