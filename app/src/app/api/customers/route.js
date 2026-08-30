@@ -30,6 +30,7 @@ export async function POST(req) {
   // duplicate identity checks — same table refuses; customer↔employee asks to confirm
   const pan = (c.pan || "").trim().toUpperCase();
   const aadhaar = String(c.aadhaar || "").replace(/\D/g, "");
+  const mobile = String(c.mobile || "").replace(/\D/g, "");
   if (pan) {
     const dc = await one(
       `SELECT full_name, cust_no FROM customer WHERE upper(pan_no) = $1 LIMIT 1`, [pan]);
@@ -37,22 +38,24 @@ export async function POST(req) {
       reason: `Already a customer with this PAN — ${dc.full_name} (${dc.cust_no}). Open their profile instead of creating a duplicate.` },
       { status: 409 });
   }
+  // E21 №2 (owner, 29 Aug 2026): identity numbers never repeat ACROSS
+  // CUSTOMERS — hard refusals, no save-anyway, so these run OUTSIDE the
+  // dupAcknowledged gate (bug fix 30 Aug 2026: they sat inside it, and the
+  // undeclared `mobile` crashed every create with a 500). Employee overlaps
+  // stay confirmations (an employee may be a customer). Mobile absolutely
+  // unique: it becomes the app login.
+  {
+    const dm = await one(`SELECT full_name, cust_no FROM customer WHERE mobile=$1 LIMIT 1`, [mobile]);
+    if (dm) return NextResponse.json({ ok: false,
+      reason: `This mobile already belongs to ${dm.full_name} (${dm.cust_no}) — mobile numbers never repeat (it becomes the app login)` }, { status: 409 });
+    if (aadhaar.length === 12) {
+      const da = await one(`SELECT full_name, cust_no FROM customer WHERE aadhaar_no=$1 LIMIT 1`, [aadhaar]);
+      if (da) return NextResponse.json({ ok: false,
+        reason: `This Aadhaar already belongs to ${da.full_name} (${da.cust_no}) — identity numbers never repeat` }, { status: 409 });
+    }
+  }
   if (!c.dupAcknowledged) {
     const hits = [];
-    // E21 №2 (owner, 29 Aug 2026): identity numbers never repeat ACROSS
-    // CUSTOMERS — hard refusals, no save-anyway. Employee overlaps stay
-    // confirmations (an employee may be a customer). Mobile absolutely
-    // unique: it becomes the app login.
-    {
-      const dm = await one(`SELECT full_name, cust_no FROM customer WHERE mobile=$1 LIMIT 1`, [mobile]);
-      if (dm) return NextResponse.json({ ok: false,
-        reason: `This mobile already belongs to ${dm.full_name} (${dm.cust_no}) — mobile numbers never repeat (it becomes the app login)` }, { status: 409 });
-      if (aadhaar.length === 12) {
-        const da = await one(`SELECT full_name, cust_no FROM customer WHERE aadhaar_no=$1 LIMIT 1`, [aadhaar]);
-        if (da) return NextResponse.json({ ok: false,
-          reason: `This Aadhaar already belongs to ${da.full_name} (${da.cust_no}) — identity numbers never repeat` }, { status: 409 });
-      }
-    }
     if (aadhaar.length === 12) {
       const de = await one(
         `SELECT full_name, emp_code FROM employee WHERE aadhaar_no = $1 LIMIT 1`, [aadhaar]);

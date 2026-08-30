@@ -414,3 +414,22 @@ The E21 deploy cost the owner three rounds of ten silent minutes. Post-mortem:
       production dump requested at deploy time — never yesterday's copy.
 Owner ledger: Chaitali Kotecha (id 36) carries placeholder mobile 9000000036
 until edited; Zztest Anil Deshmukh owns 9000000001 (delete list).
+
+---
+
+## E22 — create-customer 500 (owner report, 30 Aug 2026)
+
+"Server error while saving customer": EVERY new-customer save crashed —
+E21's same-table duplicate block referenced an undeclared `mobile`
+(ReferenceError → raw 500 before the transaction; nothing was written).
+Reproduced against the 29 Aug production dump, one-line declaration added.
+Same walk exposed the sibling defect: the mobile/Aadhaar hard checks sat
+INSIDE the dupAcknowledged gate, so a confirmed cross-table duplicate
+skipped them (the DB unique index still refused — two-layer held — but with
+the generic message). Moved outside the gate: dupAcknowledged can never
+override a same-table duplicate, matching E21 №2 as recorded. Walked twice
+with fresh values (scripts/walk-customer-create.mjs): clean create 200;
+dup mobile / dup Aadhaar / dup+ack all 409 naming the owning customer.
+Battery 19/19 green. Lesson: E21's dup-refusal walk exercised the EDIT
+path only — every NEW code path gets its own walk case, including the
+plain no-duplicate submit.
