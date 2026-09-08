@@ -538,3 +538,42 @@ both, auto-fill 9050→8100 proven, hand-typed funding survives. Battery
 19/19. NOTE: production has no silver rate row yet — the owner publishes
 silver's first pair on the board after deploy; until then silver still
 politely refuses (correct).
+
+---
+
+## E27 — the Reports section (owner order + GO, 8 Sep 2026)
+
+Seven reports under /reports, grouped as the owner named them (MIS ·
+Transaction · Cash/Bank/Financial): Branch Loan Summary, Loan Repay
+Register, Loan Application History, Outstanding Amount Report, Loan
+Details dossier, DayBook, Ledger Report. Beyond-frozen by necessity (the
+frozen UX names the section but designed no screens); styled to the app's
+language, "Reports" added to the header for reports-permission holders.
+
+Access, enforced in src/lib/reports.js so no route can forget: the
+`reports` permission gates every screen AND API; the branch wall shows a
+user ONLY branches they are posted to — "All my branches" means THEIR
+branches; an API asked for a foreign branch answers 403 naming the wall,
+and the Loan Details dossier refuses loans of foreign branches by name.
+
+Filters: FY (Indian, list derived from the first loan on record) on every
+report, plus from/to within FY, branch, and per-report extras (scheme /
+overdue-only; state + text search; mode / SLF account / settlements-only;
+account head). Every register: totals row, CSV download (rupees, not
+paise), print that emits ONLY the report region.
+
+Figures doctrine: Outstanding, Branch Summary and the dossier price live
+loans through the SAME engine replay the collect screen uses; the Repay
+Register prints the STORED appropriation rows, never recomputed. Ledger
+v1 is DERIVED, CASH-BASIS (owner silent on a/b — Claude ruled (a),
+recorded as owner-accepted): entries computed from receipts (Cr split per
+appropriation, charge GST pro-rata from its loan_charge), disbursement
+legs and cash transfers; opening balances zero; real double-entry posting
+stays on the roadmap before an accountant relies on it.
+
+Walked twice at BOTH layers (scripts/walk-reports.mjs, -ui.mjs), 22 API
+assertions cross-checking against the dues API, raw SQL sums and the
+signed day-cycle: engine figures match to the paisa; every repay split
+sums to its receipt; DayBook 28 Aug B1 opens ₹1,84,500 and closes at the
+signed ₹1,78,900; the derived ledger balances ΣDr = ΣCr exactly. Battery
+19/19.

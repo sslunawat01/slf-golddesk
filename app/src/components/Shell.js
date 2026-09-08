@@ -13,7 +13,7 @@ export default async function Shell({ children, title }) {
     .slice(0, 2).map(w => w[0].toUpperCase()).join("") || "?";
 
   const nav = [["/home", "⌂ Home"],
-    ...(desks.reports ? [["/search", "Search"]] : []),
+    ...(desks.reports ? [["/search", "Search"], ["/reports", "Reports"]] : []),
     ...(desks.settings ? [["/settings", "Settings"]] : [])];
 
   return (
