@@ -577,3 +577,8 @@ signed day-cycle: engine figures match to the paisa; every repay split
 sums to its receipt; DayBook 28 Aug B1 opens ₹1,84,500 and closes at the
 signed ₹1,78,900; the derived ledger balances ΣDr = ΣCr exactly. Battery
 19/19.
+
+**E27a (owner, 9 Sep 2026):** Branch Loan Summary gains two columns —
+"O/s Loans From" and "O/s Loans To": the oldest and newest disbursement
+dates among the branch's active loans (blank when a branch holds none).
+Verified against SQL min/max per branch, twice.

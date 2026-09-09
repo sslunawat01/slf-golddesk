@@ -74,8 +74,13 @@ export async function GET(req) {
         a.total += pr + d.interestDue + d.penalDue + d.chargesDue; return a;
       }, { principal: 0, interest: 0, charges: 0, total: 0 });
       const od = live.filter(p => p.overdue);
+      // owner 9 Sep 2026: the outstanding book's date range — oldest and
+      // newest disbursement dates among the branch's active loans
+      const disbDates = live.map(p => String(p.loan.disbursed_at)).sort();
       return {
         branch: `${b.code} ${b.name}`,
+        outstandingFrom: disbDates[0] || null,
+        outstandingTo: disbDates[disbDates.length - 1] || null,
         disbursedCount: D[id]?.n || 0, disbursedPaise: Number(D[id]?.principal || 0),
         disbursedGrams: Number(D[id]?.net_mg || 0) / 1000,
         closedCount: C[id]?.n || 0, closedPaise: Number(C[id]?.principal || 0),
