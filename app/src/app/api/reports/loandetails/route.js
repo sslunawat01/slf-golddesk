@@ -4,7 +4,7 @@ import { can } from "@/lib/policy.js";
 import { q, one } from "@/lib/db.js";
 import { resolveBranchScope } from "@/lib/reports.js";
 import { dues } from "@/lib/engine.js";
-import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "@/lib/loanstate.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -96,8 +96,7 @@ export async function GET(req) {
                               WHERE scheme_version_id=$1 ORDER BY from_day`, [loan.svid]);
       const chg = await q(`SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on
                              FROM loan_charge lc WHERE lc.loan_id=$1 AND lc.removed_at IS NULL`, [loan.id]);
-      const rec = await q(`SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
-                            WHERE loan_id=$1 ORDER BY business_date, id`, [loan.id]);
+      const rec = await q(RECEIPTS_FOR_REPLAY_SQL, [loan.id]);
       const scheme = schemeFromRow(loan, slabs, loan.scheme_code);
       const state = replayLoan({ principalPaise: loan.principal_paise,
         disbursedAt: loan.disbursed_at, scheme, charges: chg, receipts: rec });

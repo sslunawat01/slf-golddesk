@@ -1,3 +1,9 @@
+/*
+ * FROZEN at engine 1.2.0 (15 Oct 2026). The Maraekat import was priced under that
+ * engine and is complete on prod; these tools keep pointing at the frozen copy so
+ * their figures stay reproducible. They must NOT be used to import again under
+ * engine 1.3.0 without rework. See SLF-DECISIONS.md §E37.
+ */
 /**
  * Maraekat → GoldDesk import: the PURE planning half (no database).
  *
@@ -26,8 +32,8 @@
  *    re-pledge: status closed_by_renewal, linked 1:1 to a new loan of the same
  *    customer and day that was funded by ReEntry (closest amounts first).
  */
-import { dues, applyPayment, openLoan, addCharge } from "../src/lib/engine.js";
-import { chargeSnapshot, appropriationRows } from "./../src/lib/loanstate.js";
+import { dues, applyPayment, openLoan, addCharge } from "./engine-1.2.0-frozen.js";
+import { chargeSnapshot, appropriationRows } from "./loanstate-1.2.0-frozen.js";
 import { ornamentValue } from "../src/lib/valuation.js";
 
 /** 24K rate per gram (paise), monthly — an approximation for TEST data only:

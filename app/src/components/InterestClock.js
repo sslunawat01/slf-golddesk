@@ -8,7 +8,8 @@
  */
 const dmy = (iso) => { const s = String(iso || "").slice(0, 10).split("-"); return s.length === 3 ? `${s[2]}-${s[1]}-${s[0]}` : "—"; };
 const inrP = (p) => "₹" + Math.round(Number(p || 0) / 100).toLocaleString("en-IN");
-const days = (n) => `${n} day${n === 1 ? "" : "s"}`;
+const fmtDays = (d) => Math.abs(d - Math.round(d)) < 0.005 ? String(Math.round(d)) : Number(d).toFixed(2);
+const days = (n) => `${fmtDays(n)} day${Math.abs(n - 1) < 0.005 ? "" : "s"}`;
 
 export function clockWords(cov) {
   if (!cov) return null;

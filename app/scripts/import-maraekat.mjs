@@ -1,3 +1,9 @@
+/*
+ * FROZEN at engine 1.2.0 (15 Oct 2026). The Maraekat import was priced under that
+ * engine and is complete on prod; these tools keep pointing at the frozen copy so
+ * their figures stay reproducible. They must NOT be used to import again under
+ * engine 1.3.0 without rework. See SLF-DECISIONS.md §E37.
+ */
 /**
  * Maraekat → GoldDesk TEST-DATA import (owner, 15 Oct 2026).
  *
@@ -22,8 +28,8 @@ import fs from "node:fs";
 import path from "node:path";
 import pg from "pg";
 import { schemeFromRow, replayLoan, buildEvents, chargeSnapshot, appropriationRows, ENGINE_VERSION }
-  from "../src/lib/loanstate.js";
-import { dues, openLoan, addCharge, applyPayment } from "../src/lib/engine.js";
+  from "./loanstate-1.2.0-frozen.js";
+import { dues, openLoan, addCharge, applyPayment } from "./engine-1.2.0-frozen.js";
 import { qrPayload } from "../src/lib/vault.js";
 import { planLoan, pairRenewals, backComputeItem, rateOn, accountKey,
          INFERRED, INFERRED_COMMON } from "./lib-maraekat.mjs";

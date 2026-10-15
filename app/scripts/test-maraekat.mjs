@@ -1,11 +1,17 @@
+/*
+ * FROZEN at engine 1.2.0 (15 Oct 2026). The Maraekat import was priced under that
+ * engine and is complete on prod; these tools keep pointing at the frozen copy so
+ * their figures stay reproducible. They must NOT be used to import again under
+ * engine 1.3.0 without rework. See SLF-DECISIONS.md §E37.
+ */
 /**
  * Tests: the pure planning half of the Maraekat import (scripts/lib-maraekat.mjs).
  * No database. Run: node scripts/test-maraekat.mjs
  */
 import { planLoan, pairRenewals, backComputeItem, fixPrincipal, payMode, accountKey,
          rateOn, INFERRED, INFERRED_COMMON } from "./lib-maraekat.mjs";
-import { schemeFromRow, replayLoan } from "../src/lib/loanstate.js";
-import { dues } from "../src/lib/engine.js";
+import { schemeFromRow, replayLoan } from "./loanstate-1.2.0-frozen.js";
+import { dues } from "./engine-1.2.0-frozen.js";
 
 let pass = 0, fail = 0;
 const t = (c, l) => { if (c) pass++; else { fail++; console.log("FAIL " + l); } };

@@ -1,3 +1,9 @@
+/*
+ * FROZEN at engine 1.2.0 (15 Oct 2026). The Maraekat import was priced under that
+ * engine and is complete on prod; these tools keep pointing at the frozen copy so
+ * their figures stay reproducible. They must NOT be used to import again under
+ * engine 1.3.0 without rework. See SLF-DECISIONS.md §E37.
+ */
 /**
  * SLF GoldDesk — Pune calculation test-bed seeder (owner request, 28 Aug 2026)
  * ============================================================================
@@ -24,9 +30,9 @@
  */
 import fs from "node:fs";
 import pg from "pg";
-import { openLoan, addCharge, applyPayment, dues } from "../src/lib/engine.js";
+import { openLoan, addCharge, applyPayment, dues } from "./engine-1.2.0-frozen.js";
 import { schemeFromRow, appropriationRows, chargeSnapshot, ENGINE_VERSION }
-  from "../src/lib/loanstate.js";
+  from "./loanstate-1.2.0-frozen.js";
 
 const envPath = [new URL("../../.env", import.meta.url).pathname,
                  new URL("../.env", import.meta.url).pathname].find(f => fs.existsSync(f));

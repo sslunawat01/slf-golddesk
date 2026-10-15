@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { rupeesInWords } from "@/lib/format.js";
 import TopNotice from "@/app/ui/TopNotice.js";
 import InterestClock from "@/components/InterestClock.js";
-import { paymentCoverage } from "@/lib/engine.js";
+import { paymentCoverage, fmtDays } from "@/lib/engine.js";
 
 const inr = (r) => "₹" + Math.round(Number(r || 0)).toLocaleString("en-IN");
 const dmy = (d) => { const [y, m, dd] = String(d || "").split("-"); return dd ? `${dd}-${m}-${y}` : "—"; };
@@ -94,9 +94,9 @@ export default function RepayClient({ loanId }) {
         <div>&nbsp;&nbsp;to principal: {inr(done.appropriation.principal)}</div>
         <div>Balance principal: {inr(done.principalAfter)}</div>
         {done.coverageAfter && done.coverageAfter.paidDaysTotal > 0 &&
-          <div>Interest paid up to: {dmy(done.coverageAfter.paidUpTo)} ({done.coverageAfter.paidDaysTotal} days)</div>}
+          <div>Interest paid up to: {dmy(done.coverageAfter.paidUpTo)} ({fmtDays(done.coverageAfter.paidDaysTotal)} days)</div>}
         {done.coverageAfter && done.coverageAfter.dueDays > 0 &&
-          <div>Interest still due: {done.coverageAfter.dueDays} days from {dmy(done.coverageAfter.dueFrom)}</div>}
+          <div>Interest still due: {fmtDays(done.coverageAfter.dueDays)} days from {dmy(done.coverageAfter.dueFrom)}</div>}
         {done.closes && <div style={{ fontWeight: 900, marginTop: 6 }}>*** LOAN CLOSED ***</div>}
         {paidBy.trim() && <div>Paid by: {paidBy.trim()}</div>}
         <div style={{ marginTop: 8, fontSize: 11.5 }}>Received by: {mode.toUpperCase()}{utr ? " · " + utr : ""}</div>
@@ -131,7 +131,7 @@ export default function RepayClient({ loanId }) {
   // E36: what this payment's interest portion buys, in days (same arithmetic as the engine)
   const cov = d.coverage;
   const pc = cov ? paymentCoverage(cov, Math.round(toInt * 100), { minCoversUpto: view.interest.minCoversUpto }) : null;
-  const daysWord = (n) => `${n} day${n === 1 ? "" : "s"}`;
+  const daysWord = (n) => `${fmtDays(n)} day${Math.abs(n - 1) < 0.005 ? "" : "s"}`;
 
   const chips = [];
   if (amtN > settleR) chips.push(["bad", `more than the total due ${inr(settleR)} — check the amount`]);
@@ -143,9 +143,9 @@ export default function RepayClient({ loanId }) {
   else if (amtN > 0 && bal === 0 && closingIntent)
     chips.push(["ok", "this closes the loan → gold release timer starts"]);
   else if (amtN > 0 && toInt < interestDue && pc)
-    chips.push(["warn", pc.coversDays > 0
+    chips.push(["warn", pc.coversDays >= 1
       ? `part interest — pays ${daysWord(pc.coversDays)} (${dmy(pc.coversFrom)} to ${dmy(pc.coversTo)}); ${daysWord(pc.remainingDays)} still due`
-      : `part interest — less than one day's interest; all ${daysWord(pc.remainingDays)} still due`]);
+      : `part interest — less than one day's interest; ${daysWord(pc.remainingDays)} still due`]);
   else if (amtN > 0 && toInt === interestDue && interestDue > 0 && pc?.clearsAll && !(bal === 0 && closingIntent))
     chips.push(["ok", pc.advanceDays > 0
       ? `clears all interest and carries the customer to ${dmy(pc.paidUpToAfter)} (${daysWord(pc.advanceDays)} ahead)`
@@ -222,7 +222,7 @@ export default function RepayClient({ loanId }) {
                       of these, <b style={{ color: "#1e7a4f" }}>{daysWord(cov.paidDays)} already paid</b> (up to {dmy(cov.paidUpTo)}) ·{" "}
                       <b style={{ color: "#a06407" }}>{daysWord(cov.dueDays)} due</b> ({dmy(cov.dueFrom)} to {dmy(cov.dueTo)})</div>)}
                 </td>
-                <td style={{ ...td, textAlign: "center" }}>{cov ? cov.dueDays : view.cycleDays}
+                <td style={{ ...td, textAlign: "center" }}>{cov ? fmtDays(cov.dueDays) : view.cycleDays}
                   {cov && cov.paidDays > 0 && <div style={{ fontSize: 11, color: "var(--mut)" }}>of {cov.cycleDays}</div>}</td>
                 <td style={tdR}>{inr(interestDue)}</td>
               </tr>
@@ -230,7 +230,7 @@ export default function RepayClient({ loanId }) {
             {penalDue > 0 && (
               <tr>
                 <td style={{ ...td, color: "#b03426" }}>
-                  <b>Penal interest</b> · interest unpaid since {dmy(view.penal.clockFrom)} ({view.penal.unpaidDays} days, past tenure + grace)</td>
+                  <b>Penal interest</b> · interest unpaid since {dmy(view.penal.clockFrom)} ({fmtDays(view.penal.unpaidDays)} days, past tenure + grace) · from {dmy(view.penal.from)}</td>
                 <td style={{ ...td, textAlign: "center" }}>{view.penal.days}</td>
                 <td style={{ ...tdR, color: "#b03426" }}>{inr(penalDue)}</td>
               </tr>
@@ -256,6 +256,9 @@ export default function RepayClient({ loanId }) {
             </tr>
           </tbody>
         </table>
+        {cov && cov.reachedPct > 0 && cov.reachedPct > (view.interest.slab?.ratePct ?? 0) && (
+          <div style={{ padding: "8px 14px", background: "#fdf1d8", fontSize: 12.5, color: "#a06407" }}>
+            The {cov.reachedPct}% rate stays until the interest is paid in full — a part payment buys days but never lowers the rate.</div>)}
         {view.interest.minApplied && (
           <div style={{ padding: "10px 14px", background: "#fdf1d8" }}>
             <span className="chip warn">
@@ -369,11 +372,11 @@ export default function RepayClient({ loanId }) {
                 ? <><b>Interest paid in full</b> for all {daysWord(cov.dueDays)} ({dmy(cov.dueFrom)} to {dmy(cov.dueTo)}).
                     {pc.advanceDays > 0 ? <> Carries the customer to <b>{dmy(pc.paidUpToAfter)}</b> ({daysWord(pc.advanceDays)} ahead, minimum-interest rule).</>
                       : <> Interest will now be paid up to <b>{dmy(pc.paidUpToAfter)}</b>; the clock restarts tomorrow.</>}</>
-                : toInt > 0 && pc.coversDays > 0
+                : toInt > 0 && pc.coversDays >= 1
                   ? <><b>{inr(toInt)} pays {daysWord(pc.coversDays)}</b> of interest — {dmy(pc.coversFrom)} to {dmy(pc.coversTo)}.
                       Still due: <b>{daysWord(pc.remainingDays)}</b> ({dmy(addOne(pc.coversTo))} to {dmy(cov.dueTo)}) = {inr(pc.remainingPaise / 100)}.</>
                   : toInt > 0
-                    ? <>{inr(toInt)} is less than one day's interest ({inr(cov.perDayPaise / 100)}/day) — all {daysWord(cov.dueDays)} stay due.</>
+                    ? <>{inr(toInt)} is less than one day's interest ({inr(cov.perDayPaise / 100)}/day) — it buys {daysWord(pc.coversDays)}; {daysWord(pc.remainingDays)} stay due.</>
                     : <>Nothing reaches interest yet — charges and penal are paid first.</>}
             </div>)}
           <Row label="To principal" value={inr(toPri)} />

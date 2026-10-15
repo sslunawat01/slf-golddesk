@@ -1159,3 +1159,71 @@ each twice. Earlier walks green; walk-e28/e35/employee-create fail only after
 18:00 IST because their throwaway Counter Operators hit that role's sign-in
 window — re-run with the window widened: all pass (O-W: give the walks a
 role without a window).
+
+## E37 — engine 1.3.0: "a part payment buys days" (owner rulings, 15 Oct 2026)
+
+The owner answered 14 questions on part payments (Q10 and Q11 left blank); the
+engine was rethought around them and simplified. The constitution in CLAUDE.md
+is rewritten; the rules in one breath:
+- R-C  a cycle is measured in UNPAID days (days since it opened − days bought).
+  A part payment buys days = rupees reaching interest ÷ that day's per-day
+  interest, as an exact fraction (Q1, Q2); bought days are final (Q3); the rate
+  never drops on a part payment — the highest slab reached is kept until a
+  full interest payment (Q4b, Q12); the next slab is reached when the UNPAID
+  days reach it (Q5); a full payment of every rupee of interest due closes
+  the cycle, ₹10 short does not (Q6).
+- R-I  penal on the same unpaid days (Q7); once started it is frozen and stops
+  only on a full interest payment or closure (Q13); a full penal settlement
+  alone moves the penal anchor.
+- R-E  floor untouched (Q8). R-D rounding untouched (Q9). "Paid up to" is the
+  screen's word (Q14).
+- HISTORY IS FACT, NOT ARITHMETIC: a stored receipt is folded into the state
+  from its stored split (engine.applySplit) and never re-priced, whatever
+  engine version took it; applyPayment prices only the payment being taken
+  now and then calls the same applySplit. The two legacy rule paths
+  (penalRule loan_age / unpaid_interest, interestPaidInCycle, interestClock)
+  are gone. loanstate.RECEIPTS_FOR_REPLAY_SQL is the one query every replay
+  caller uses (receipt rows carry their appropriation JSON); a receipt row
+  without a split (test fixtures) is priced instead.
+- State now: cycleStart · paidDays (fraction) · reachedPct · penalFrom
+  (frozen) · penalAnchor · penalPaid · lifetimeInterestPaid · charges.
+- Q10 (open cycles on the book): the only consistent reading is that what is
+  owed TODAY follows the rule — stored receipts are untouched, their
+  interest rupees are converted to days at the rate of their own day, so
+  open cycles re-price immediately. Measured on the local copy of the prod
+  book (scripts/compare-engine-1.2-vs-1.3.mjs, workbook handed to the
+  owner): 1,167 running loans, interest due today ₹26,72,690 under 1.2.0 →
+  ₹24,75,230 under 1.3.0; 107 loans move, all lower, ₹1,97,460 in total —
+  the days bought at 18% are no longer re-priced at 24%. THE OWNER MUST
+  CONFIRM THIS BEFORE DEPLOY. Q11 (Maraekat parity) unanswered.
+- verify-replay.mjs is now a FACT audit: split sums, principal
+  reconciliation, status vs closes_loan, and re-pricing of receipts taken
+  under the live engine (1.3.x) only. The 19 "problems" of the re-pricing
+  audit were artefacts of re-pricing old receipts; the fact audit passes on
+  the whole book (4,862 loans · 8,695 receipts).
+- The Maraekat import tooling (lib-maraekat, import-maraekat, test-maraekat,
+  seed-pune-tests) is FROZEN on copies of engine/loanstate 1.2.0
+  (scripts/*-1.2.0-frozen.js): the import is done; those tools must not be
+  re-run under 1.3.0 without rework. ops/deploy.sh now runs
+  scripts/test-engine.mjs instead of the Jul-2026 ../engine prototype.
+- Screens: fractional days everywhere ("10.18 days"); the collect screen's
+  working line reads "Unpaid 125.64 days (12-06-2026 to 15-10-2026) @ 24%
+  (24% kept until interest is paid in full)"; an amber note explains the
+  kept rate; the penal row names the frozen start day.
+
+Proof: test-engine 103 (every ruling as a golden case with hand-checked
+rupees: ₹1,000 on day 61 → 24.33 days, 56.67 unpaid at 15% = ₹2,330; ratchet
+₹2,920; ₹10 short; penal frozen through a part payment — 8 days ₹50, ₹60 /
+₹6,620 after a 106-day buy; floor 10 days ahead; days final; prospective;
+loan 03A5602283: ₹870 → 82.59 days), test-loanstate 58 (priced = folded,
+old sealed receipts honoured, rounding handed back to its charge); battery
+22/22; verify-replay PASS; walk-e37 (API+DB: 24%-cycle part payment buys
+99.02 days at ₹132/day, unpaid 49.98 yet rate kept 24%, work line, due =
+days × per-day, receipt stamped 1.3.0, full interest seals, cache; penal
+running survives a part payment that pulls unpaid days to 99.96; audit);
+walk-e36 + walk-e36-ui re-pointed at fractional days; every earlier walk
+green (walk-maraekat now folds; walk-reports-ui waits for the API).
+
+Open: O-X — owner confirmation of the ₹1.97 lakh re-pricing (Q10) and
+Maraekat parity (Q11) before this ships. O-Y — the receipt print says
+"paid up to"; the Marathi WhatsApp line could carry it too.

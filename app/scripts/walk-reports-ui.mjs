@@ -30,7 +30,13 @@ ok(/MIS Reports/i.test(home) && /Transaction Reports/i.test(home) && /Cash \/ Ba
 
 async function runReport(path, expectRe, label) {
   await page.goto(BASE + path, { waitUntil: "networkidle" });
-  await page.locator("button", { hasText: /run report/i }).click();
+  await page.waitForTimeout(400);                                  // let the client hydrate before the click lands
+  const api = path.replace("/reports/", "/api/reports/");
+  const [resp] = await Promise.all([
+    page.waitForResponse(r => r.url().includes(api), { timeout: 90000 }).catch(() => null),
+    page.locator("button", { hasText: /run report/i }).click(),
+  ]);
+  if (!resp) { await page.locator("button", { hasText: /run report/i }).click(); await page.waitForResponse(r => r.url().includes(api), { timeout: 90000 }).catch(() => null); }
   // E31: the Branch Summary replays every loan twice (period start and end);
   // with the 1,000+ imported B3 loans that is ~3 s — wait for the figures, not a fixed pause
   await page.waitForTimeout(2500);

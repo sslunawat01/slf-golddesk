@@ -13,24 +13,21 @@
  * Pure functions — rows come in as arguments, nothing here touches the database.
  */
 
-import { openLoan, addCharge, applyPayment, validateScheme } from "./engine.js";
+import { openLoan, addCharge, applyPayment, applySplit, dues, validateScheme, roundUp10 } from "./engine.js";
 
 /** Stamped on every receipt so a future engine change stays traceable. */
-export const ENGINE_VERSION = "1.2.0"; // R-I penal clock = interest-unpaid period (owner 15 Oct 2026)
+export const ENGINE_VERSION = "1.3.0"; // R-C part payments buy days; R-I penal on unpaid days (owner 15 Oct 2026)
 
 /**
- * Which penal rule a stored receipt was priced under. Receipts are facts: one
- * taken under engine 1.1.x was appropriated on the loan-age clock and must
- * replay that way, or its stored split would not reproduce. Anything newer —
- * and anything with no version, i.e. a payment being priced right now — uses
- * today's rule.
+ * The receipt rows replayLoan() folds. Every caller fetches them with this one
+ * query so a stored receipt always arrives with its split and its flags.
  */
-export function penalRuleFor(engineVersion) {
-  const m = /^(\d+)\.(\d+)/.exec(String(engineVersion || ""));
-  if (!m) return "unpaid_interest";
-  const major = Number(m[1]), minor = Number(m[2]);
-  return (major < 1 || (major === 1 && minor < 2)) ? "loan_age" : "unpaid_interest";
-}
+export const RECEIPTS_FOR_REPLAY_SQL = `
+  SELECT r.id, r.receipt_no, r.business_date::text AS business_date, r.amount_paise, r.closes_loan, r.seals_cycle,
+         r.engine_version,
+         coalesce((SELECT json_agg(json_build_object('bucket', ra.bucket, 'loanChargeId', ra.loan_charge_id, 'amountPaise', ra.amount_paise) ORDER BY ra.id)
+                     FROM receipt_appropriation ra WHERE ra.receipt_id = r.id), '[]'::json) AS appropriation
+    FROM receipt r WHERE r.loan_id = $1 ORDER BY r.business_date, r.id`;
 
 /** The engine rounds to ₹10. A scheme that says otherwise must not be guessed at. */
 const ROUND_STEP_PAISE = 1000;
@@ -80,36 +77,69 @@ export function schemeFromRow(sv, slabs = [], code = "") {
  * Build the timeline the engine folds over. Charges and receipts are merged by
  * date; a charge added on the same day as a payment is due on that payment,
  * so charges sort first within a day.
+ *
+ * A receipt that carries its stored `appropriation` rows is a FACT and is
+ * folded as a split (never re-priced). A receipt without them (test fixtures,
+ * what-if previews) is priced by the engine as of its date.
  */
 export function buildEvents(charges = [], receipts = []) {
   const evs = [];
   for (const c of charges)
     evs.push({ at: String(c.added_on), seq: 0, type: "charge",
       id: String(c.id), amount: Number(c.total_paise) / 100 });
-  for (const r of receipts)
-    evs.push({ at: String(r.business_date), seq: 1, type: "payment",
-      date: String(r.business_date), amount: Number(r.amount_paise) / 100,
-      closing: !!r.closes_loan, penalRule: penalRuleFor(r.engine_version) });
+  for (const r of receipts) {
+    const rows = Array.isArray(r.appropriation) ? r.appropriation : null;
+    if (rows) evs.push({ at: String(r.business_date), seq: 1, type: "split", date: String(r.business_date),
+      rows, seals: !!r.seals_cycle, closes: !!r.closes_loan, amountPaise: Number(r.amount_paise) });
+    else evs.push({ at: String(r.business_date), seq: 1, type: "payment",
+      date: String(r.business_date), amount: Number(r.amount_paise) / 100, closing: !!r.closes_loan });
+  }
   evs.sort((a, b) => a.at === b.at ? a.seq - b.seq : (a.at < b.at ? -1 : 1));
   return evs;
+}
+
+/**
+ * Stored appropriation rows → the engine's split. The charge_rounding row is
+ * the rounding that completed one or more charges; it is handed back to those
+ * charges in order, exactly as the engine booked it.
+ */
+export function splitFromRows(state, rows) {
+  const split = { charges: [], penal: 0, interest: 0, principal: 0 };
+  let rounding = 0;
+  for (const r of rows) {
+    const amt = Number(r.amountPaise || 0);
+    if (r.bucket === "charge") split.charges.push({ id: String(r.loanChargeId), paid: amt, exact: amt });
+    else if (r.bucket === "charge_rounding") rounding += amt;
+    else if (r.bucket === "penal") split.penal += amt;
+    else if (r.bucket === "interest") split.interest += amt;
+    else if (r.bucket === "principal") split.principal += amt;
+  }
+  for (const cp of split.charges) {
+    const c = state.charges.find(x => String(x.id) === cp.id);
+    if (!c || rounding <= 0) continue;
+    if (c.paidExact + cp.exact >= c.amountExact) {
+      const share = Math.min(rounding, roundUp10(c.amountExact) - (c.paidExact + cp.exact));
+      if (share > 0) { cp.paid += share; rounding -= share; }
+    }
+  }
+  return split;
 }
 
 /**
  * Replay a loan into its current engine state.
  *
  * `charges` are loan_charge rows still live (removed_at IS NULL), each carrying
- * `added_on` as a date string. `receipts` are receipt rows in any order, each
- * carrying its `engine_version` so it replays under the rule it was priced with.
- *
- * The engine's charge id is the loan_charge id, so an appropriation written
- * afterwards can point at the exact charge row it settled.
+ * `added_on`. `receipts` are the rows RECEIPTS_FOR_REPLAY_SQL returns — stored
+ * splits are folded as facts; a row without a split is priced.
  */
 export function replayLoan({ principalPaise, disbursedAt, scheme, charges = [], receipts = [] }) {
   const state = openLoan({ principal: Number(principalPaise) / 100, disbursedAt: String(disbursedAt) });
   for (const ev of buildEvents(charges, receipts)) {
     if (ev.type === "charge") addCharge(state, { id: ev.id, amount: ev.amount });
-    else applyPayment(scheme, state, { date: ev.date, amount: ev.amount, closing: ev.closing,
-                                       penalRule: ev.penalRule });
+    else if (ev.type === "split")
+      applySplit(scheme, state, { date: ev.date, d: dues(scheme, state, ev.date),
+        split: splitFromRows(state, ev.rows), seals: ev.seals, closes: ev.closes });
+    else applyPayment(scheme, state, { date: ev.date, amount: ev.amount, closing: ev.closing });
   }
   return state;
 }

@@ -63,15 +63,16 @@ const r1 = await call(`/api/loans/${L.id}/receipt`, { amountPaise: amt * 100, mo
 ok(r1.j?.ok === true && r1.j.coverageAfter, `receipt ₹${amt} taken (${r1.j?.reason || r1.j?.receiptNo}) — answers coverageAfter`);
 const ca = r1.j.coverageAfter;
 const toInt = Math.round(r1.j.appropriation.interest * 100);
-const expectDays = Math.min(c0.dueDays - 1, Math.floor(toInt / c0.perDayPaise));
-ok(ca.paidDays === expectDays && ca.paidUpTo === addDays(L.disbursed_at, expectDays - 1), `₹${toInt / 100} to interest bought ${ca.paidDays} days (expected ${expectDays}) → paid up to ${dmy(ca.paidUpTo)}`);
-ok(ca.paidDays + ca.dueDays === ca.cycleDays && ca.dueFrom === addDays(ca.paidUpTo, 1) && ca.dueTo === today, `paid ${ca.paidDays} + due ${ca.dueDays} = cycle ${ca.cycleDays}; due runs ${dmy(ca.dueFrom)} → today`);
-ok(ca.interestDuePaise === Math.round(run.interest.due * 100) - toInt, `rupees still due ₹${ca.interestDuePaise / 100} = ₹${run.interest.due} − ₹${toInt / 100}`);
+const expectDays = toInt / c0.perDayPaise;                                   // exact fraction (owner Q2)
+const f2 = (x) => Number(x).toFixed(2);
+ok(f2(ca.paidDays) === f2(expectDays) && ca.paidUpTo === addDays(L.disbursed_at, Math.floor(expectDays) - 1), `₹${toInt / 100} to interest bought ${f2(ca.paidDays)} days (expected ${f2(expectDays)}) → paid up to ${dmy(ca.paidUpTo)}`);
+ok(f2(ca.paidDays + ca.dueDays) === f2(ca.cycleDays) && ca.dueFrom === addDays(ca.paidUpTo, 1) && ca.dueTo === today, `paid ${f2(ca.paidDays)} + due ${f2(ca.dueDays)} = cycle ${ca.cycleDays}; due runs ${dmy(ca.dueFrom)} → today`);
+ok(Math.abs(ca.interestDuePaise - (Math.round(run.interest.due * 100) - toInt)) <= 1000, `rupees still due ₹${ca.interestDuePaise / 100} ≈ ₹${run.interest.due} − ₹${toInt / 100} (within the ₹10 round-up)`);
 ok(ca.cycleFrom === L.disbursed_at, "a part payment did NOT move the cycle anchor (R-C)");
 const d1 = await call(`/api/loans/${L.id}/dues`, null, nag);
 ok(JSON.stringify(d1.j.coverage) === JSON.stringify(ca), "dues API after the receipt agrees exactly with coverageAfter");
 const lp1 = await call(`/loans/${L.id}`, null, nag);
-ok(lp1.text.includes(`Interest paid up to ${dmy(ca.paidUpTo)} (${ca.paidDaysTotal} days)`) && lp1.text.includes(`Due for ${ca.dueDays} days`), "loan page: paid up to / due for after the part payment");
+ok(lp1.text.includes(`Interest paid up to ${dmy(ca.paidUpTo)} (${f2(ca.paidDaysTotal)} days)`) && lp1.text.includes(`Due for ${f2(ca.dueDays)} days`), "loan page: paid up to / due for after the part payment");
 const pen = await sql1(`SELECT coalesce(sum(ra.amount_paise),0)::bigint AS i FROM receipt_appropriation ra JOIN receipt r ON r.id=ra.receipt_id WHERE r.loan_id=$1 AND ra.bucket='interest'`, [L.id]);
 ok(Number(pen.i) === toInt, "stored appropriation to interest matches what the preview was told");
 

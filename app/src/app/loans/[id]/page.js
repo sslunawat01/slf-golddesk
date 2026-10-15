@@ -4,7 +4,7 @@ import { viewUrl } from "@/lib/s3.js";
 import { notFound } from "next/navigation";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
-import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "@/lib/loanstate.js";
 import { dues, interestCoverage } from "@/lib/engine.js";
 import LoanExtrasClient from "../../customers/[id]/LoanExtrasClient.js";
 import FollowupSection from "@/components/followups/FollowupSection.js";
@@ -44,6 +44,7 @@ export default async function LoanProfile({ params }) {
     evidence.push({ label: row.label, thumb: await viewUrl(row.thumb_s3_key || row.s3_key).catch(() => null),
       full: await viewUrl(row.s3_key).catch(() => null) });
 
+  const rcpReplay = await q(RECEIPTS_FOR_REPLAY_SQL, [id]);
   const [sv, slabs, lch, rcp, approps, items, photos, cob, custody, followups, outcomes,
          borrowerPhotoRow] =
     await Promise.all([
@@ -98,7 +99,7 @@ export default async function LoanProfile({ params }) {
   // live figures — same replay the repay screen prices from
   const scheme = schemeFromRow(sv, slabs, l.scheme_code);
   const state = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.disbursed_at,
-    scheme, charges: lch, receipts: rcp });
+    scheme, charges: lch, receipts: rcpReplay });
   const closing = dues(scheme, state, today, { closing: true });
   const P = closing._paise;
   // E36 (owner, 15 Oct 2026): interest paid up to / due for N days — the running view, not the closing one

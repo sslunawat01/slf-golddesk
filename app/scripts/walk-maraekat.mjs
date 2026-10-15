@@ -7,7 +7,7 @@
  *   node scripts/walk-maraekat.mjs
  */
 import pg from "pg";
-import { schemeFromRow, replayLoan } from "../src/lib/loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "../src/lib/loanstate.js";
 import { dues } from "../src/lib/engine.js";
 pg.types.setTypeParser(1082, v => v);
 const BASE = "http://localhost:3000";
@@ -67,7 +67,7 @@ for (const l of act) {
   const scheme = schemeFromRow(l, slabsAll.filter(x => Number(x.scheme_version_id) === Number(l.svid)), l.scheme_code);
   const st = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.d, scheme,
     charges: await sql(`SELECT id, total_paise, added_at::date::text AS added_on FROM loan_charge WHERE loan_id=$1 AND removed_at IS NULL`, [l.id]),
-    receipts: await sql(`SELECT business_date::text AS business_date, amount_paise, closes_loan, engine_version FROM receipt WHERE loan_id=$1 ORDER BY business_date, id`, [l.id]) });
+    receipts: await sql(RECEIPTS_FOR_REPLAY_SQL, [l.id]) });     // E37: stored splits fold as facts
   const want = dues(scheme, st, today)._paise.settlement;
   const d = await call(`/api/loans/${l.id}/dues`, null, own);
   const s = d.j?.running?._paise?.settlement;

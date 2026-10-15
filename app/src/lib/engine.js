@@ -1,70 +1,73 @@
 /**
- * SLF GoldDesk — Interest Engine
- * ==============================
+ * SLF GoldDesk — Interest Engine  ·  version 1.3.0
+ * ================================================
  * Pure calculation core. No dependencies, no I/O, no dates-from-the-clock:
  * everything the engine knows arrives as arguments; everything it decides
  * returns as plain data. This file is the single place interest, penal,
  * charges-rounding, minimum-interest and appropriation are computed.
  *
- * THE CONSTITUTION (locked with the owner, Jul 2026)
- *  R-A  Divisor = scheme.daysInYear (365 today). Never the calendar.
- *  R-B  Slab interest is RETROACTIVE within a cycle: the slab reached by the
- *       cycle's age prices ALL its days. (Prospective also supported as config.)
- *  R-C  Cycles are anchored by interest payments: a payment that clears ALL
- *       interest due seals the period and restarts the slab clock from day 1.
- *       Partial payments reduce dues but never move the anchor.
- *  R-D  Round-up to the next ₹10 is universal. Interest and penal round once
- *       on their own total. CHARGES ROUND INDIVIDUALLY — each charge rounds up
- *       to ₹10 on its own (amended 27 Jul 2026 by the owner; previously the
- *       charges total rounded once). Raw 2-dp is kept underneath, and the
- *       difference between what is billed and what is owed is Rounding income.
- *  R-E  Minimum interest (scheme.minInterestDays, 15 today) is a LIFETIME floor
- *       applied at EVERY payment, not only at closure (amended 27 Jul 2026 by
- *       the owner; the earlier closure-only reading was wrong). A loan's first
- *       interest payment is topped up to the minimum-days amount if it falls
- *       short. Because the floor is on LIFETIME interest, it can bind only once
- *       per loan — after it is satisfied it never binds again.
- *       Paying the floor buys DAYS, not a reset: when the top-up applies, the
- *       cycle anchor moves to disbursement + minInterestDays, so the customer
- *       is never charged twice for the same day.
- *  R-F  Settlement = principal + interest(rounded) + penal(rounded)
- *       + charges(rounded). No second rounding of the total.
- *  R-G  Appropriation order: charges → penal → interest → principal.
- *  R-H  Capitalization only at renewal, by human choice (outside this file —
- *       a renewal simply starts a new loan whose principal may include it).
- *  R-I  Penal = scheme.penalRatePct p.a. on OVERDUE PRINCIPAL. Grace forgives
- *       ENTIRELY if the loan is closed within tenure+grace; otherwise penal
- *       runs from tenure end itself. Rate and grace are scheme fields.
- *       AMENDED 15 Oct 2026 (owner): the penal clock is the INTEREST-UNPAID
- *       period, not the loan's age. It starts at disbursement and restarts
- *       the day after ANY payment that reaches interest (a part payment
- *       counts). Penal is charged only once that period exceeds
- *       tenure+grace, and then from day tenure+1 of the period (the grace
- *       days are charged, not skipped). Receipts taken under engine 1.1.x
- *       were priced on the loan's age; they replay under that older rule
- *       (penalRule "loan_age") so stored appropriations reproduce exactly.
- *  R-J  Principal is a multiple of ₹100. Payments: min ₹100 in ₹10 steps —
- *       the exact settlement figure is always accepted (safety net; with R-D
- *       on charges every settlement already lands on ₹10).
- *  R-L  BOTH END DAYS COUNT (owner, 28 Aug 2026): the disbursement day and
- *       the payment day are both interest days — day 1 IS the disbursement
- *       day. So that no day is ever charged twice, every anchor holds the
- *       FIRST CHARGEABLE day of its period: disbursement for the first
- *       cycle, the day AFTER the sealing payment for every later one. The
- *       same counting applies to loan age, tenure and penal days.
+ * THE CONSTITUTION (locked with the owner Jul 2026; part payments rewritten
+ * with the owner on 15 Oct 2026 — "a part payment buys days")
  *
- * Money is handled in PAISE (integers) internally; the public surface speaks
- * rupees. Grams and rates never enter this file — valuation is upstream.
+ *  R-A  Divisor = scheme.daysInYear. Never the calendar.
+ *  R-B  Slab interest is RETROACTIVE within the UNPAID period: the slab reached
+ *       by the unpaid-day count prices every unpaid day. (Prospective exists
+ *       as scheme config: each day at its own slab.)
+ *  R-C  A CYCLE opens on disbursement (or the day after a FULL interest
+ *       payment) and is measured in UNPAID DAYS:
+ *           unpaid = days since the cycle opened − days already bought.
+ *       · A PART payment BUYS DAYS: the rupees reaching interest, divided by
+ *         that day's per-day interest, in exact fractions (10.18 days is
+ *         10.18 days). Days bought are final — never re-priced later.
+ *       · A part payment never LOWERS the rate: the highest slab the cycle has
+ *         reached is kept (ratchet) until a full interest payment.
+ *       · The cycle crosses into the next slab when the UNPAID days reach it,
+ *         not the calendar days since the cycle opened.
+ *       · A FULL payment of every rupee of interest due closes the cycle; the
+ *         next day is day 1 at the first slab. ₹10 short is not full.
+ *  R-D  Round-up to the next ₹10 is universal: interest and penal round once
+ *       on their own total; EACH charge rounds up on its own, and the
+ *       difference between billed and owed is Rounding income.
+ *  R-E  Minimum interest (scheme.minInterestDays) is a LIFETIME floor applied
+ *       at every payment: the first interest payment is topped up to the
+ *       minimum-days amount, and the floor then never binds again. Paying the
+ *       floor buys days: a cycle sealed under the floor reopens on
+ *       disbursement + minInterestDays, never earlier.
+ *  R-F  Settlement = principal + interest + penal + charges, each already
+ *       rounded. No second rounding.
+ *  R-G  Appropriation order: charges → penal → interest → principal.
+ *  R-H  Capitalization only at renewal, by human choice (outside this file).
+ *  R-I  Penal = scheme.penalRatePct p.a. on OVERDUE PRINCIPAL, measured on the
+ *       same UNPAID days as interest (i.e. from the paid-up-to date):
+ *       · nothing until the unpaid days exceed tenure + grace;
+ *       · then it runs from unpaid day tenure+1 (grace days are charged, not
+ *         skipped) — closing inside the window is forgiven entirely;
+ *       · ONCE STARTED it does not stop for a part payment: the start day is
+ *         frozen; only a full interest payment (which, by R-G, has paid the
+ *         penal first) or closure ends it. A full penal settlement on its own
+ *         moves the penal anchor to the next day.
+ *  R-J  Principal is a multiple of ₹100. Payments: min ₹100 in ₹10 steps —
+ *       the exact settlement figure is always accepted.
+ *  R-L  BOTH END DAYS COUNT: the disbursement day and the payment day are both
+ *       interest days — day 1 IS the day the cycle opens. Every anchor holds
+ *       the FIRST chargeable day of its period.
+ *
+ * HISTORY IS FACT, NOT ARITHMETIC. A receipt already taken is folded into the
+ * state from its STORED split (applySplit) — it is never re-priced, whatever
+ * engine version took it. applyPayment prices only the payment being taken
+ * now, and then calls the same applySplit, so a receipt taken today and the
+ * same receipt folded tomorrow leave the loan in exactly the same state.
+ *
+ * Money is handled in PAISE (integers) internally; days are exact fractions;
+ * the public surface speaks rupees.
  */
 
 // ————————————————————————————— helpers —————————————————————————————
 
 const P = 100; // paise per rupee
-
-/** rupees → paise (integer). Accepts int or 2-dp float. */
 const toPaise = (r) => Math.round(r * P);
-/** paise → rupees float (safe for display math only). */
 const toRupees = (p) => p / P;
+const EPS = 1e-9;
 
 /** Round paise UP to the next ₹10 (R-D). 0 stays 0. */
 export function roundUp10(paise) {
@@ -72,7 +75,7 @@ export function roundUp10(paise) {
   return Math.ceil(paise / step) * step;
 }
 
-/** Whole days from a to b (calendar), floor at 0. Dates are 'YYYY-MM-DD'. */
+/** Whole calendar days from a to b, floor at 0. Dates are 'YYYY-MM-DD'. */
 export function daysBetween(a, b) {
   const MS = 86400000;
   const da = Date.UTC(+a.slice(0, 4), +a.slice(5, 7) - 1, +a.slice(8, 10));
@@ -80,30 +83,21 @@ export function daysBetween(a, b) {
   return Math.max(0, Math.round((db - da) / MS));
 }
 
-/**
- * Chargeable days from `from` to `to`, BOTH days counted (R-L, owner
- * 28 Aug 2026). `from` is the first chargeable day of the period; a `to`
- * before `from` is zero days. Same day in and out = 1 day.
- */
+/** Chargeable days from `from` to `to`, BOTH days counted (R-L). `to` before `from` = 0. */
 export function countDays(from, to) {
   return to < from ? 0 : daysBetween(from, to) + 1;
 }
 
-// ————————————————————————— scheme validation ————————————————————————
+export function addDays(iso, n) {
+  const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)));
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
-/**
- * @typedef {Object} Scheme
- * @property {string} code
- * @property {number} daysInYear            // R-A, e.g. 365
- * @property {'simple'|'slab'} calcMethod
- * @property {number=} interestPctAnnual    // simple method
- * @property {{fromDay:number,toDay:number,ratePct:number}[]=} slabs // slab method
- * @property {'retroactive'|'prospective'=} slabMode  // default retroactive (R-B)
- * @property {number} minInterestDays       // R-E, e.g. 15
- * @property {number=} tenureDays           // for penal (R-I)
- * @property {number=} penalRatePct         // scheme-driven; 0/undefined = no penal
- * @property {number=} penalGraceDays       // scheme-driven
- */
+/** 10.18 → "10.18", 12 → "12" — days as the screen shows them. */
+export const fmtDays = (d) => Math.abs(d - Math.round(d)) < 0.005 ? String(Math.round(d)) : d.toFixed(2);
+
+// ————————————————————————— scheme validation ————————————————————————
 
 export function validateScheme(s) {
   if (!s || s.daysInYear <= 0) throw new Error("scheme.daysInYear required");
@@ -130,60 +124,70 @@ export function slabFor(scheme, day) {
   return slabs[slabs.length - 1];
 }
 
+/** The slab day a (possibly fractional) unpaid count has reached: 62.82 unpaid days are on day 63. */
+const slabDay = (u) => Math.max(1, Math.ceil(u - EPS));
+
 /**
- * Interest for a cycle of `days` on `principalPaise` — RAW paise, no rounding.
- * R-A divisor, R-B slab modes. `days` may be 0 → 0.
+ * The annual rate that prices `unpaidDays` of a cycle (retroactive / simple),
+ * never below `reachedPct` (R-C ratchet).
  */
-export function cycleInterestRaw(scheme, principalPaise, days) {
+export function rateFor(scheme, unpaidDaysCount, reachedPct = 0) {
+  if (scheme.calcMethod === "simple") return scheme.interestPctAnnual;
+  return Math.max(reachedPct, slabFor(scheme, slabDay(unpaidDaysCount)).ratePct);
+}
+
+/**
+ * Interest for `days` (may be fractional) on `principalPaise` — RAW paise, no
+ * rounding. Retroactive/simple: one rate for all days (R-B). Prospective:
+ * each day at its own slab's rate.
+ */
+export function cycleInterestRaw(scheme, principalPaise, days, reachedPct = 0) {
   if (days <= 0 || principalPaise <= 0) return 0;
   const DIY = scheme.daysInYear;
-  if (scheme.calcMethod === "simple") {
-    return Math.round((principalPaise * scheme.interestPctAnnual * days) / (100 * DIY));
-  }
-  const mode = scheme.slabMode ?? "retroactive";
-  if (mode === "retroactive") {
-    const rate = slabFor(scheme, days).ratePct;           // slab REACHED prices all days
-    return Math.round((principalPaise * rate * days) / (100 * DIY));
-  }
-  // prospective: each slab prices only its own days
+  if (scheme.calcMethod === "simple" || (scheme.slabMode ?? "retroactive") === "retroactive")
+    return (principalPaise * rateFor(scheme, days, reachedPct) * days) / (100 * DIY);
   let raw = 0;
   for (const sl of scheme.slabs) {
-    const from = Math.max(1, sl.fromDay);                  // day counting starts at 1
-    if (days < from) break;
-    const upto = Math.min(days, sl.toDay);
-    const d = upto - from + 1;
-    raw += Math.round((principalPaise * sl.ratePct * d) / (100 * DIY));
-    if (upto === days) break;
+    const from = Math.max(1, sl.fromDay);
+    const span = Math.min(days, sl.toDay) - (from - 1);           // unpaid days falling in this slab
+    if (span <= 0) break;
+    raw += (principalPaise * sl.ratePct * span) / (100 * DIY);
   }
   return raw;
 }
 
-// ————————————————————————————— dues (R-A…R-I) —————————————————————————————
+/** Interest for ONE day at the rate in force — what a rupee of part payment buys against. */
+export function perDayPaise(scheme, principalPaise, unpaidDaysCount, reachedPct = 0) {
+  if (principalPaise <= 0) return 0;
+  return (principalPaise * rateFor(scheme, unpaidDaysCount, reachedPct)) / (100 * scheme.daysInYear);
+}
+
+// ————————————————————————————— state —————————————————————————————
 
 /**
- * The loan state the engine folds over. Create with openLoan(), evolve ONLY
- * via applyPayment(). All monetary fields in paise.
  * @typedef {Object} LoanState
- * @property {number} principal            // outstanding principal, paise
+ * @property {number} principal            outstanding, paise
  * @property {number} principalOriginal
- * @property {string} disbursedAt          // YYYY-MM-DD
- * @property {string} cycleAnchor          // R-C: interest accrues from here
- * @property {number} interestPaidInCycle  // rounded paise paid inside current cycle
- * @property {number} lifetimeInterestPaid // rounded paise, all cycles (feeds R-E)
- * @property {number} penalPaid            // rounded paise paid in current penal period
- * @property {string|null} penalAnchor     // penal accrues from here (default: tenure end)
- * @property {{id:string,amountExact:number,paidExact:number}[]} charges // paise
+ * @property {string} disbursedAt
+ * @property {string} cycleStart           R-C: day 1 of the open cycle
+ * @property {number} paidDays             exact days of the open cycle bought by part payments
+ * @property {number} reachedPct           highest slab rate the open cycle has reached (ratchet)
+ * @property {number} lifetimeInterestPaid paise, all cycles (feeds R-E)
+ * @property {string|null} penalFrom       R-I: frozen first penal day once penal has started
+ * @property {string|null} penalAnchor     day after the last FULL penal settlement
+ * @property {number} penalPaid            paise paid toward the current penal period
+ * @property {{id:string,amountExact:number,paidExact:number}[]} charges
  * @property {boolean} closed
  */
-
 export function openLoan({ principal, disbursedAt }) {
   const pp = toPaise(principal);
   if (pp % (100 * P) !== 0) throw new Error("principal must be a multiple of ₹100 (R-J)");
   return {
     principal: pp, principalOriginal: pp, disbursedAt,
-    cycleAnchor: disbursedAt, interestPaidInCycle: 0,
-    interestClock: disbursedAt,              // R-I (15 Oct 2026): first day interest has been unpaid
-    lifetimeInterestPaid: 0, penalPaid: 0, penalAnchor: null, charges: [], closed: false,
+    cycleStart: disbursedAt, paidDays: 0, reachedPct: 0,
+    lifetimeInterestPaid: 0,
+    penalFrom: null, penalAnchor: null, penalPaid: 0,
+    charges: [], closed: false,
   };
 }
 
@@ -192,63 +196,59 @@ export function addCharge(state, { id, amount }) {
   return state;
 }
 
+/** Unpaid days of the open cycle as of a date (never negative). */
+export function unpaidDays(state, asOf) {
+  return Math.max(0, countDays(state.cycleStart, asOf) - state.paidDays);
+}
+
+/** First unpaid day of the open cycle (the day after "paid up to"). */
+const dueFromOf = (state) => addDays(state.cycleStart, Math.floor(state.paidDays + EPS));
+
+// ————————————————————————————— dues —————————————————————————————
+
 /**
- * Everything owed as of `asOf`. Pure — never mutates state.
- * `closing:true` applies the closure-only rules: min-interest floor (R-E) and
- * the grace-window forgiveness test (R-I).
+ * Everything owed as of `asOf`. Pure — never mutates state. `closing` is the
+ * customer's intent to settle in full; the figures are the same (the floor
+ * applies at every payment, R-E) — the flag is echoed for the screen.
  */
-export function dues(scheme, state, asOf, { closing = false, penalRule = "unpaid_interest" } = {}) {
-  // —— interest for the current cycle ——
-  // R-L: the anchor is the first chargeable day and today counts too.
-  const cycleDays = countDays(state.cycleAnchor, asOf);
-  const rawCycle = cycleInterestRaw(scheme, state.principal, cycleDays);
-  let interestDue = Math.max(0, roundUp10(rawCycle) - state.interestPaidInCycle);
+export function dues(scheme, state, asOf, { closing = false } = {}) {
+  const u = unpaidDays(state, asOf);
+  const cycleDays = countDays(state.cycleStart, asOf);
+  const ratePct = rateFor(scheme, u, state.reachedPct);
+  const rawCycle = Math.round(cycleInterestRaw(scheme, state.principal, u, state.reachedPct));   // paise
+  let interestDue = roundUp10(rawCycle);
 
-  // —— minimum-interest lifetime floor, every payment (R-E) ——
+  // —— minimum-interest lifetime floor (R-E) ——
   let minApplied = false;
-  {
-    const floorRaw = cycleInterestRaw(scheme, state.principalOriginal, scheme.minInterestDays);
-    const floorRounded = roundUp10(floorRaw);
-    const lifetimeWithThis = state.lifetimeInterestPaid + interestDue;
-    if (lifetimeWithThis < floorRounded) {
-      interestDue = floorRounded - state.lifetimeInterestPaid;
-      minApplied = true;
-    }
+  const floorRounded = roundUp10(Math.round(cycleInterestRaw(scheme, state.principalOriginal, scheme.minInterestDays)));
+  if (state.lifetimeInterestPaid + interestDue < floorRounded) {
+    interestDue = floorRounded - state.lifetimeInterestPaid;
+    minApplied = true;
   }
-  // R-L: the floor pays for days 1…minInterestDays, i.e. through
-  // disbursement+(min−1); this is the FIRST CHARGEABLE day after that.
-  const minCoversUpto = addDays(state.disbursedAt, scheme.minInterestDays);
+  const minCoversUpto = addDays(state.disbursedAt, scheme.minInterestDays);   // first chargeable day after the floor's days
 
-  // —— penal (R-I, amended 15 Oct 2026) ——
-  // The penal clock: "unpaid_interest" (today's rule) counts from the day
-  // interest was last paid; "loan_age" (engine 1.1.x, kept for replaying old
-  // receipts) counts from disbursement. R-L: both ends count, so day 1 is the
-  // clock's first day; day `tenure` is the last in-time day and the first
-  // overdue day is clock+tenure.
-  const clock = penalRule === "loan_age" ? state.disbursedAt : (state.interestClock ?? state.disbursedAt);
-  const unpaidDays = countDays(clock, asOf);
+  // —— penal (R-I) on the same unpaid days ——
   const tenure = scheme.tenureDays ?? Infinity;
   const grace = scheme.penalGraceDays ?? 0;
-  const rate = scheme.penalRatePct ?? 0;
-  let penalRaw = 0, penalDays = 0, inGrace = false;
-  if (rate > 0 && Number.isFinite(tenure) && unpaidDays > tenure) {
-    const withinWindow = unpaidDays <= tenure + grace;
-    if (withinWindow) {
-      inGrace = true;   // closing here ⇒ forgiven entirely; running ⇒ would-be zero
-    } else {
-      // Penal accrues from the first overdue day of this clock, or from the
-      // day after the last full penal settlement if that is later (R-L).
-      const first = addDays(clock, tenure);
-      const start = state.penalAnchor && state.penalAnchor > first ? state.penalAnchor : first;
-      penalDays = countDays(start, asOf);
-      penalRaw = Math.round((state.principal * rate * penalDays) / (100 * scheme.daysInYear));
-    }
+  const penalRate = scheme.penalRatePct ?? 0;
+  const penalPossible = penalRate > 0 && Number.isFinite(tenure);
+  let penalFrom = state.penalFrom;                       // frozen once started (R-I)
+  let running = !!penalFrom;
+  if (!running && penalPossible && u > tenure + grace + EPS) {
+    running = true;
+    // the first day on which the unpaid count exceeded the tenure = unpaid day tenure+1
+    penalFrom = addDays(state.cycleStart, Math.floor(tenure + state.paidDays + EPS));
   }
-  const penalDue = Math.max(0, roundUp10(penalRaw) - state.penalPaid);
+  const inGrace = !running && penalPossible && u > tenure + EPS && u <= tenure + grace + EPS;
+  let penalDays = 0, penalRaw = 0;
+  if (running) {
+    const start = state.penalAnchor && state.penalAnchor > penalFrom ? state.penalAnchor : penalFrom;
+    penalDays = countDays(start, asOf);
+    penalRaw = (state.principal * penalRate * penalDays) / (100 * scheme.daysInYear);
+  }
+  const penalDue = Math.max(0, roundUp10(Math.round(penalRaw)) - state.penalPaid);
 
-  // —— charges (R-D amended: EACH charge rounds up to ₹10 on its own) ——
-  // A charge's payable figure is fixed at its own rounded amount, so a part
-  // payment can never cause it to round a second time.
+  // —— charges (R-D: each rounds up on its own) ——
   let chargesExact = 0, chargesDue = 0;
   for (const c of state.charges) {
     const payable = roundUp10(c.amountExact);
@@ -257,46 +257,45 @@ export function dues(scheme, state, asOf, { closing = false, penalRule = "unpaid
     chargesDue += open;
     chargesExact += Math.max(0, c.amountExact - Math.min(c.paidExact, c.amountExact));
   }
-  const chargesRounding = chargesDue - chargesExact;      // → Rounding income ledger
+  const chargesRounding = chargesDue - chargesExact;
 
-  const settlement = state.principal + interestDue + penalDue + chargesDue; // R-F
+  const settlement = state.principal + interestDue + penalDue + chargesDue;   // R-F
+  const dueFrom = dueFromOf(state);
+  const paidUpTo = addDays(dueFrom, -1);
 
   return {
-    asOf, cycleDays,
+    asOf, closing, cycleDays, unpaidDays: u, ratePct,
     interest: { raw: toRupees(rawCycle), due: toRupees(interestDue), minApplied,
       minDays: scheme.minInterestDays, minCoversUpto: minApplied ? minCoversUpto : null,
-      slab: scheme.calcMethod === "slab" ? slabFor(scheme, cycleDays) : null,
-      workLine: workLine(scheme, cycleDays) },
+      ratePct, perDayPaise: perDayPaise(scheme, state.principal, u, state.reachedPct),
+      paidDays: state.paidDays, paidUpTo, dueFrom: u > 0 ? dueFrom : null,
+      slab: scheme.calcMethod === "slab" ? slabFor(scheme, slabDay(u)) : null,
+      workLine: workLine(scheme, state, u, ratePct, asOf) },
     penal: { days: penalDays, raw: toRupees(penalRaw), due: toRupees(penalDue),
-      inGraceWindow: inGrace, rule: penalRule, clockFrom: clock, unpaidDays,
-      // R-L: day tenure+grace is the last forgiven day = clock + (tenure+grace−1)
-      graceTill: Number.isFinite(tenure) ? addDays(clock, tenure + grace - 1) : null },
-    charges: { exact: toRupees(chargesExact), due: toRupees(chargesDue),
-      roundingIncome: toRupees(chargesRounding) },
+      running, from: running ? penalFrom : null, inGraceWindow: inGrace,
+      clockFrom: dueFrom, unpaidDays: u,
+      graceTill: penalPossible ? addDays(dueFrom, Math.ceil(tenure + grace) - 1) : null },
+    charges: { exact: toRupees(chargesExact), due: toRupees(chargesDue), roundingIncome: toRupees(chargesRounding) },
     principal: toRupees(state.principal),
     settlement: toRupees(settlement),
     _paise: { interestDue, penalDue, chargesDue, chargesExact, settlement },
   };
 }
 
-function addDays(iso, n) {
-  const d = new Date(Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)));
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-}
+const dmy = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
 
-/** Customer-facing working line, e.g. "Day 1–80 @ 18% (slab 63–123 reached)". */
-export function workLine(scheme, days) {
-  if (days <= 0) return "—";
-  if (scheme.calcMethod === "simple")
-    return `Day 1–${days} @ ${scheme.interestPctAnnual}%`;
-  if ((scheme.slabMode ?? "retroactive") === "retroactive") {
-    const sl = slabFor(scheme, days);
-    return `Day 1–${days} @ ${sl.ratePct}% (slab ${sl.fromDay}–${sl.toDay} reached)`;
+/** Customer-facing working line. */
+export function workLine(scheme, state, u, ratePct, asOf) {
+  if (u <= 0) return "—";
+  let slabNote = "";
+  if (scheme.calcMethod === "slab" && (scheme.slabMode ?? "retroactive") === "retroactive") {
+    const sl = slabFor(scheme, slabDay(u));
+    slabNote = state.reachedPct > sl.ratePct
+      ? ` (${ratePct}% kept until interest is paid in full)`
+      : ` (slab ${sl.fromDay}–${sl.toDay} reached)`;
   }
-  return scheme.slabs.filter(sl => days >= Math.max(1, sl.fromDay))
-    .map(sl => `Day ${Math.max(1, sl.fromDay)}–${Math.min(days, sl.toDay)} @ ${sl.ratePct}%`)
-    .join(" + ");
+  if (state.paidDays <= 0) return `Day 1–${fmtDays(u)} @ ${ratePct}%${slabNote}`;
+  return `Unpaid ${fmtDays(u)} days (${dmy(dueFromOf(state))} to ${dmy(asOf)}) @ ${ratePct}%${slabNote}`;
 }
 
 // ——————————————————————— payments & appropriation ———————————————————————
@@ -305,7 +304,7 @@ export function workLine(scheme, days) {
 export function validatePaymentAmount(amountRupees, settlementPaise) {
   const a = toPaise(amountRupees);
   if (a <= 0) return { ok: false, reason: "amount must be positive" };
-  if (a === settlementPaise) return { ok: true };            // exact settlement always ok
+  if (a === settlementPaise) return { ok: true };
   if (a > settlementPaise) return { ok: false, reason: "more than the total due" };
   if (a < 100 * P) return { ok: false, reason: "minimum payment is ₹100" };
   if (a % (10 * P) !== 0) return { ok: false, reason: "multiples of ₹10 only" };
@@ -313,21 +312,59 @@ export function validatePaymentAmount(amountRupees, settlementPaise) {
 }
 
 /**
- * Apply one payment (R-G order). Mutates and returns { state, receipt }.
- * `closing` marks the customer's intent to settle in full (activates R-E/R-I
- * closure rules through dues()).
+ * Fold ONE receipt's split into the state — the single mutation path, used
+ * both for a payment priced now and for a stored receipt replayed later.
+ *   split (paise): { charges:[{id, paid}], penal, interest, principal }
+ *                  `paid` is the money received against that charge — its exact
+ *                  part plus the rounding that completed it (the caller folding a
+ *                  stored receipt reconstructs that from the charge_rounding row)
+ *   seals:  this receipt paid every rupee of interest due (closes the cycle)
+ *   closes: the loan is settled in full
+ * `d` is dues(scheme, state, date) computed BEFORE the fold: it carries the
+ * rate that prices the days bought, the penal position and the floor's date.
  */
-export function applyPayment(scheme, state, { date, amount, closing = false, penalRule = "unpaid_interest" }) {
+export function applySplit(scheme, state, { date, d, split, seals, closes }) {
+  // 1 · charges
+  for (const cp of split.charges || []) {
+    const c = state.charges.find(x => String(x.id) === String(cp.id));
+    if (c) c.paidExact += cp.paid;                       // money received against the charge, rounding included
+  }
+  // 2 · penal — once started it is frozen (R-I); a full settlement moves the anchor
+  if (d.penal.running) state.penalFrom = d.penal.from;
+  if (split.penal > 0) {
+    state.penalPaid += split.penal;
+    if (split.penal >= d._paise.penalDue) { state.penalAnchor = addDays(date, 1); state.penalPaid = 0; }
+  }
+  // 3 · interest — full: the cycle closes; part: days are bought at today's rate
+  if (split.interest > 0) state.lifetimeInterestPaid += split.interest;
+  if (seals) {
+    const nextDay = addDays(date, 1);
+    const upto = d.interest.minCoversUpto;
+    state.cycleStart = upto && upto > nextDay ? upto : nextDay;
+    state.paidDays = 0; state.reachedPct = 0;
+    state.penalFrom = null; state.penalAnchor = null; state.penalPaid = 0;
+  } else if (split.interest > 0) {
+    state.reachedPct = Math.max(state.reachedPct, d.interest.ratePct);
+    if (d.interest.perDayPaise > 0) state.paidDays += split.interest / d.interest.perDayPaise;
+  }
+  // 4 · principal
+  state.principal = Math.max(0, state.principal - (split.principal || 0));
+  if (closes) state.closed = true;
+  return state;
+}
+
+/** Price and apply one NEW payment (R-G order). Mutates and returns { state, receipt }. */
+export function applyPayment(scheme, state, { date, amount, closing = false }) {
   if (state.closed) throw new Error("loan already closed");
-  const d = dues(scheme, state, date, { closing, penalRule });
+  const d = dues(scheme, state, date, { closing });
   const v = validatePaymentAmount(amount, d._paise.settlement);
   if (!v.ok) throw new Error(v.reason);
   let rest = toPaise(amount);
 
-  // 1 · charges — customer pays the ROUNDED total; exact rows consume FIFO,
-  //     the surplus is Rounding income (R-D).
+  // 1 · charges FIFO: the customer pays each charge's ROUNDED payable; the part
+  //     above its true amount is Rounding income (R-D)
   const toCharges = Math.min(rest, d._paise.chargesDue);
-  let roundingIncome = 0;
+  const chargeParts = []; let roundingIncome = 0;
   if (toCharges > 0) {
     let left = toCharges;
     for (const c of state.charges) {
@@ -336,57 +373,28 @@ export function applyPayment(scheme, state, { date, amount, closing = false, pen
       const open = payable - c.paidExact;
       if (open <= 0) continue;
       const pay = Math.min(open, left);
-      // whatever lands above the charge's true amount is Rounding income
       const exactBefore = Math.min(c.paidExact, c.amountExact);
-      c.paidExact += pay;
-      const exactAfter = Math.min(c.paidExact, c.amountExact);
-      roundingIncome += pay - (exactAfter - exactBefore);
+      const exactAfter = Math.min(c.paidExact + pay, c.amountExact);
+      const exact = exactAfter - exactBefore;
+      roundingIncome += pay - exact;
+      chargeParts.push({ id: c.id, paid: pay, exact });
       left -= pay;
     }
     rest -= toCharges;
   }
-
-  // 2 · penal — full settlement of penal moves the penal anchor (like R-C).
-  //     R-L: the payment day itself was priced, so the new anchor is the
-  //     day after it.
-  const toPenal = Math.min(rest, d._paise.penalDue);
-  state.penalPaid += toPenal; rest -= toPenal;
-  if (toPenal > 0 && toPenal === d._paise.penalDue) {
-    state.penalAnchor = addDays(date, 1); state.penalPaid = 0;
-  }
-
+  // 2 · penal
+  const toPenal = Math.min(rest, d._paise.penalDue); rest -= toPenal;
   // 3 · interest
-  const toInterest = Math.min(rest, d._paise.interestDue);
-  state.interestPaidInCycle += toInterest;
-  state.lifetimeInterestPaid += toInterest;
-  rest -= toInterest;
-  // R-I (15 Oct 2026): any money reaching interest restarts the penal clock
-  // from the next day — a part payment counts (owner). Kept under every
-  // penalRule so a loan replayed across engine versions carries the right clock.
-  if (toInterest > 0) state.interestClock = addDays(date, 1);
-
-  // R-C: full interest settled up to `date` ⇒ seal the cycle, restart the clock.
-  // R-L: the payment day was priced inside THIS cycle, so the next cycle's
-  // first chargeable day is the day after it.
-  // R-E: when the minimum-days floor was applied, the customer has bought days
-  // beyond today — the clock restarts from the first day the floor does NOT
-  // cover, never earlier, or he would pay twice for the same days.
-  const sealsCycle = toInterest > 0 && toInterest === d._paise.interestDue;
-  if (sealsCycle) {
-    const nextDay = addDays(date, 1);
-    const upto = d.interest.minCoversUpto;
-    state.cycleAnchor = (upto && upto > nextDay) ? upto : nextDay;
-    state.interestPaidInCycle = 0;
-  }
-
+  const toInterest = Math.min(rest, d._paise.interestDue); rest -= toInterest;
+  const seals = toInterest > 0 && toInterest === d._paise.interestDue;
   // 4 · principal
-  const toPrincipal = Math.min(rest, state.principal);
-  state.principal -= toPrincipal; rest -= toPrincipal;
+  const toPrincipal = Math.min(rest, state.principal); rest -= toPrincipal;
+  const closes = state.principal - toPrincipal === 0 &&
+    d._paise.interestDue === toInterest && d._paise.penalDue === toPenal && d._paise.chargesDue === toCharges;
 
-  const closes = state.principal === 0 &&
-    d._paise.interestDue === toInterest && d._paise.penalDue === toPenal &&
-    d._paise.chargesDue === toCharges;
-  if (closes) state.closed = true;
+  const daysBought = seals || d.interest.perDayPaise <= 0 ? 0 : toInterest / d.interest.perDayPaise;
+  applySplit(scheme, state, { date, d,
+    split: { charges: chargeParts, penal: toPenal, interest: toInterest, principal: toPrincipal }, seals, closes });
 
   return {
     state,
@@ -397,97 +405,19 @@ export function applyPayment(scheme, state, { date, amount, closing = false, pen
         penal: toRupees(toPenal), interest: toRupees(toInterest),
         principal: toRupees(toPrincipal), unallocated: toRupees(rest),
       },
-      sealsCycle, principalAfter: toRupees(state.principal),
+      chargeParts,
+      sealsCycle: seals, daysBought, principalAfter: toRupees(state.principal),
+      paidUpTo: addDays(dueFromOf(state), -1),
     },
   };
 }
 
-// ————————————————————— interest coverage in DAYS (E36) —————————————————————
-
-/** Per-day interest in paise (exact, fractional) for a cycle that is `cycleDays` old. */
-function perDayPaise(scheme, principalPaise, cycleDays) {
-  if (principalPaise <= 0) return 0;
-  const rate = scheme.calcMethod === "simple" ? scheme.interestPctAnnual
-    : slabFor(scheme, Math.max(1, cycleDays)).ratePct;
-  return (principalPaise * rate) / (100 * scheme.daysInYear);
-}
-
-/** How many whole days of the current cycle `paidPaise` buys. */
-function daysBought(scheme, principalPaise, cycleDays, paidPaise) {
-  if (paidPaise <= 0 || cycleDays <= 0) return 0;
-  if (scheme.calcMethod === "slab" && (scheme.slabMode ?? "retroactive") === "prospective") {
-    let n = 0;                                   // each day at its own slab's rate
-    while (n < cycleDays && cycleInterestRaw(scheme, principalPaise, n + 1) <= paidPaise) n++;
-    return n;
-  }
-  const pd = perDayPaise(scheme, principalPaise, cycleDays);   // retroactive: today's slab prices every day
-  return pd > 0 ? Math.min(cycleDays, Math.floor(paidPaise / pd)) : 0;
-}
-
 /**
- * The counter's "interest paid up to / due for" line (owner, 15 Oct 2026).
- * Pure, DERIVED from the state the engine already keeps — it changes no figure.
- *
- * Sealed cycles are paid in full, so every day before the cycle anchor is paid.
- * Inside the open cycle a part payment buys whole days at the rate the cycle
- * is priced at TODAY (R-B retroactive: crossing a slab re-prices the cycle, so
- * the same rupees buy fewer days — the honest consequence of the owner's rule).
- * Whatever the rounded due does not divide into whole days counts as one due
- * day, so paid + due always equals the cycle's length.
- *
- * Returns dates as 'YYYY-MM-DD' and days as integers:
- *   paidUpTo       last day interest is paid for (day before disbursement when nothing is)
- *   paidDays       days paid for in the OPEN cycle · paidDaysTotal over the loan's life
- *   dueDays        days unpaid, dueFrom … asOf · interestDuePaise the rupees for them
- *   advanceDays    > 0 when the min-interest floor carried the customer past today
- *   cycleDays, cycleFrom, ratePct, perDayPaise (for a client-side preview)
+ * Replay a whole event history.
+ *   {type:"charge", id, amount}                                   a charge raised
+ *   {type:"payment", date, amount, closing}                       priced now
+ *   {type:"split", date, split, seals, closes}                    a stored receipt (fact)
  */
-export function interestCoverage(scheme, state, asOf, { penalRule = "unpaid_interest" } = {}) {
-  const d = dues(scheme, state, asOf, { penalRule });
-  const cycleDays = d.cycleDays;
-  const prevDay = addDays(state.cycleAnchor, -1);
-  const interestDue = d._paise.interestDue;
-  let paidDays = daysBought(scheme, state.principal, cycleDays, state.interestPaidInCycle);
-  let dueDays = Math.max(0, cycleDays - paidDays);
-  if (interestDue > 0 && dueDays === 0) { dueDays = 1; paidDays = Math.max(0, cycleDays - 1); }
-  if (interestDue === 0) { dueDays = 0; paidDays = cycleDays; }
-  const paidUpTo = paidDays > 0 ? addDays(state.cycleAnchor, paidDays - 1) : prevDay;
-  const advanceDays = state.cycleAnchor > asOf ? countDays(addDays(asOf, 1), prevDay) : 0;
-  const paidDaysTotal = paidUpTo >= state.disbursedAt ? countDays(state.disbursedAt, paidUpTo) : 0;
-  return {
-    asOf, cycleFrom: state.cycleAnchor, cycleDays,
-    ratePct: scheme.calcMethod === "simple" ? scheme.interestPctAnnual : slabFor(scheme, Math.max(1, cycleDays)).ratePct,
-    perDayPaise: perDayPaise(scheme, state.principal, cycleDays),
-    paidUpTo, paidDays, paidDaysTotal, advanceDays,
-    dueDays, dueFrom: dueDays > 0 ? addDays(paidUpTo, 1) : null, dueTo: dueDays > 0 ? asOf : null,
-    interestDuePaise: interestDue, ageDays: countDays(state.disbursedAt, asOf),
-  };
-}
-
-/**
- * What a payment's interest portion buys, for the live preview while the
- * amount is typed. `cov` is interestCoverage(); `toInterestPaise` is the part
- * of the payment that reaches interest after charges and penal (R-G).
- * Pure arithmetic on the coverage figures — safe to run in the browser.
- */
-export function paymentCoverage(cov, toInterestPaise, { minCoversUpto = null } = {}) {
-  const toInt = Math.max(0, Math.round(toInterestPaise));
-  if (cov.dueDays === 0 || toInt === 0)
-    return { clearsAll: false, coversDays: 0, coversFrom: null, coversTo: null,
-      remainingDays: cov.dueDays, remainingPaise: cov.interestDuePaise, paidUpToAfter: cov.paidUpTo };
-  if (toInt >= cov.interestDuePaise) {
-    const upto = minCoversUpto && minCoversUpto > cov.asOf ? addDays(minCoversUpto, -1) : cov.asOf;
-    return { clearsAll: true, coversDays: cov.dueDays, coversFrom: cov.dueFrom, coversTo: cov.asOf,
-      remainingDays: 0, remainingPaise: 0, paidUpToAfter: upto,
-      advanceDays: upto > cov.asOf ? countDays(addDays(cov.asOf, 1), upto) : 0 };
-  }
-  const coversDays = cov.perDayPaise > 0 ? Math.min(cov.dueDays - 1, Math.floor(toInt / cov.perDayPaise)) : 0;
-  const coversTo = coversDays > 0 ? addDays(cov.dueFrom, coversDays - 1) : cov.paidUpTo;
-  return { clearsAll: false, coversDays, coversFrom: coversDays > 0 ? cov.dueFrom : null, coversTo: coversDays > 0 ? coversTo : null,
-    remainingDays: cov.dueDays - coversDays, remainingPaise: cov.interestDuePaise - toInt, paidUpToAfter: coversTo, advanceDays: 0 };
-}
-
-/** Replay a whole event history — the .bak validation harness will live on this. */
 export function replay(scheme, opening, events) {
   validateScheme(scheme);
   const state = openLoan(opening);
@@ -495,7 +425,51 @@ export function replay(scheme, opening, events) {
   for (const ev of events) {
     if (ev.type === "charge") addCharge(state, ev);
     else if (ev.type === "payment") receipts.push(applyPayment(scheme, state, ev).receipt);
+    else if (ev.type === "split") applySplit(scheme, state, { date: ev.date, d: dues(scheme, state, ev.date), split: ev.split, seals: ev.seals, closes: ev.closes });
     else throw new Error("unknown event " + ev.type);
   }
   return { state, receipts };
+}
+
+// ————————————————————— interest in DAYS, for the screens —————————————————————
+
+/** The counter's "paid up to / due for" line — the engine's own state. Days may be fractional. */
+export function interestCoverage(scheme, state, asOf) {
+  const d = dues(scheme, state, asOf);
+  const u = d.unpaidDays, cycleDays = d.cycleDays;
+  const dueFrom = dueFromOf(state);
+  const paidUpTo = addDays(dueFrom, -1);
+  const sealedDays = countDays(state.disbursedAt, addDays(state.cycleStart, -1));
+  return {
+    asOf, cycleFrom: state.cycleStart, cycleDays, ratePct: d.ratePct, reachedPct: state.reachedPct,
+    perDayPaise: d.interest.perDayPaise,
+    paidUpTo, paidDays: state.paidDays, paidDaysTotal: sealedDays + Math.min(state.paidDays, cycleDays),
+    // paid ahead of today: the floor moved the cycle start past today, or days were bought beyond today
+    advanceDays: state.cycleStart > asOf ? countDays(addDays(asOf, 1), addDays(state.cycleStart, -1))
+      : Math.max(0, state.paidDays - cycleDays),
+    dueDays: u, dueFrom: u > 0 ? dueFrom : null, dueTo: u > 0 ? asOf : null,
+    interestDuePaise: d._paise.interestDue, ageDays: countDays(state.disbursedAt, asOf),
+  };
+}
+
+/**
+ * What a payment's interest portion buys, for the live preview while the
+ * amount is typed. Pure arithmetic on the coverage figures — runs in the browser.
+ */
+export function paymentCoverage(cov, toInterestPaise, { minCoversUpto = null } = {}) {
+  const toInt = Math.max(0, Math.round(toInterestPaise));
+  if (cov.dueDays <= 0 || toInt === 0)
+    return { clearsAll: false, coversDays: 0, coversFrom: null, coversTo: null,
+      remainingDays: cov.dueDays, remainingPaise: cov.interestDuePaise, paidUpToAfter: cov.paidUpTo, advanceDays: 0 };
+  if (toInt >= cov.interestDuePaise) {
+    const upto = minCoversUpto && minCoversUpto > cov.asOf ? addDays(minCoversUpto, -1) : cov.asOf;
+    return { clearsAll: true, coversDays: cov.dueDays, coversFrom: cov.dueFrom, coversTo: cov.asOf,
+      remainingDays: 0, remainingPaise: 0, paidUpToAfter: upto,
+      advanceDays: upto > cov.asOf ? countDays(addDays(cov.asOf, 1), upto) : 0 };
+  }
+  const coversDays = cov.perDayPaise > 0 ? Math.min(cov.dueDays, toInt / cov.perDayPaise) : 0;
+  const whole = Math.floor(cov.paidDays + coversDays + EPS) - Math.floor(cov.paidDays + EPS);   // whole days the paid-up-to date moves
+  const coversTo = whole > 0 ? addDays(cov.dueFrom, whole - 1) : cov.paidUpTo;
+  return { clearsAll: false, coversDays, coversFrom: coversDays > 0 ? cov.dueFrom : null, coversTo: coversDays > 0 ? coversTo : null,
+    remainingDays: cov.dueDays - coversDays, remainingPaise: cov.interestDuePaise - toInt, paidUpToAfter: coversTo, advanceDays: 0 };
 }

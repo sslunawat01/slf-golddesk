@@ -6,7 +6,7 @@ import { notFound } from "next/navigation";
 import NewPledgeButton from "@/components/NewPledgeButton.js";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
-import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "@/lib/loanstate.js";
 import { dues } from "@/lib/engine.js";
 import BankAccountsClient from "./BankAccountsClient.js";
 import RemarksClient from "./RemarksClient.js";
@@ -93,8 +93,7 @@ export default async function Customer360({ params, searchParams }) {
       `SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on, ct.name AS charge_name
          FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
         WHERE lc.loan_id = $1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [l.id]);
-    const rcp = await q(`SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
-                          WHERE loan_id = $1 ORDER BY business_date, id`, [l.id]);
+    const rcp = await q(RECEIPTS_FOR_REPLAY_SQL, [l.id]);
     const scheme = schemeFromRow(sv, slabs, l.scheme);
     const state = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.disbursed_at,
       scheme, charges: lch, receipts: rcp });

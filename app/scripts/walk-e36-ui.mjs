@@ -48,14 +48,15 @@ for (const width of [1300, 768]) {
   const amtBox = p.locator("input[inputmode=numeric]").first();
   await amtBox.fill(String(part)); await p.waitForTimeout(200);
   const pay = await p.locator("[data-pay-days]").textContent();
-  const toInt = halfInt, expectDays = Math.min(cov.dueDays - 1, Math.floor(toInt * 100 / cov.perDayPaise));
-  ok(pay.includes(`₹${toInt.toLocaleString("en-IN")} pays ${expectDays} days`) && pay.includes(dmy(cov.dueFrom)) && pay.includes(`Still due: ${cov.dueDays - expectDays} days`), `${W} live preview: ₹${toInt} pays ${expectDays} days, ${cov.dueDays - expectDays} still due`);
+  const fmt = (d) => Math.abs(d - Math.round(d)) < 0.005 ? String(Math.round(d)) : d.toFixed(2);
+  const toInt = halfInt, expectDays = toInt * 100 / cov.perDayPaise;
+  ok(pay.includes(`₹${toInt.toLocaleString("en-IN")} pays ${fmt(expectDays)} days`) && pay.includes(dmy(cov.dueFrom)) && pay.includes(`Still due: ${fmt(cov.dueDays - expectDays)} days`), `${W} live preview: ₹${toInt} pays ${fmt(expectDays)} days, ${fmt(cov.dueDays - expectDays)} still due`);
   const chip = await p.locator(".chip.warn", { hasText: /part interest/ }).textContent();
-  ok(chip.includes(`pays ${expectDays} days`) && chip.includes(`${cov.dueDays - expectDays} days still due`), `${W} chip repeats the days`);
+  ok(chip.includes(`pays ${fmt(expectDays)} days`) && chip.includes(`${fmt(cov.dueDays - expectDays)} days still due`), `${W} chip repeats the days`);
   // less than a day
   await amtBox.fill(String(Math.round(run.charges.due + run.penal.due + 100))); await p.waitForTimeout(150);
   const tiny = await p.locator("[data-pay-days]").textContent();
-  ok(cov.perDayPaise > 10000 ? /less than one day/.test(tiny) : /pays \d+ day/.test(tiny), `${W} ₹100 to interest: "${tiny.slice(0, 60)}…"`);
+  ok(cov.perDayPaise > 10000 ? /less than one day/.test(tiny) : /pays [\d.]+ day/.test(tiny), `${W} ₹100 to interest: "${tiny.slice(0, 60)}…"`);
   // interest only → paid in full
   await p.locator("button", { hasText: /^(Interest only|Charges \+ interest)/ }).click(); await p.waitForTimeout(200);
   const full = await p.locator("[data-pay-days]").textContent();
@@ -69,19 +70,19 @@ for (const width of [1300, 768]) {
   await p.waitForSelector("text=/Receipt /", { timeout: 20000 });
   const done = await p.locator("body").textContent();
   const after = (await p.evaluate(async (id) => (await fetch(`/api/loans/${id}/dues`)).json(), L.id)).coverage;
-  ok(done.includes(`Interest paid up to ${dmy(after.paidUpTo)} (${after.paidDaysTotal} days)`) && done.includes(`Due for ${after.dueDays} days`), `${W} receipt view: paid up to ${dmy(after.paidUpTo)}, due for ${after.dueDays} days`);
+  ok(done.includes(`Interest paid up to ${dmy(after.paidUpTo)} (${fmt(after.paidDaysTotal)} days)`) && done.includes(`Due for ${fmt(after.dueDays)} days`), `${W} receipt view: paid up to ${dmy(after.paidUpTo)}, due for ${fmt(after.dueDays)} days`);
   const print = await p.locator("#slf-receipt").textContent();
-  ok(print.includes(`Interest paid up to: ${dmy(after.paidUpTo)} (${after.paidDaysTotal} days)`) && print.includes(`Interest still due: ${after.dueDays} days from ${dmy(after.dueFrom)}`), `${W} printed receipt carries both lines`);
+  ok(print.includes(`Interest paid up to: ${dmy(after.paidUpTo)} (${fmt(after.paidDaysTotal)} days)`) && print.includes(`Interest still due: ${fmt(after.dueDays)} days from ${dmy(after.dueFrom)}`), `${W} printed receipt carries both lines`);
 
   // ── loan page after the part payment ──
   await p.goto(`${BASE}/loans/${L.id}`, { waitUntil: "networkidle" });
   const lc = await p.locator("[data-interest-clock]").textContent();
-  ok(lc.includes(`Interest paid up to ${dmy(after.paidUpTo)} (${after.paidDaysTotal} days)`) && lc.includes(`Due for ${after.dueDays} days — ${dmy(after.dueFrom)} to ${dmy(today)}`), `${W} loan page clock: paid up to ${dmy(after.paidUpTo)}, due ${after.dueDays} days`);
+  ok(lc.includes(`Interest paid up to ${dmy(after.paidUpTo)} (${fmt(after.paidDaysTotal)} days)`) && lc.includes(`Due for ${fmt(after.dueDays)} days — ${dmy(after.dueFrom)} to ${dmy(today)}`), `${W} loan page clock: paid up to ${dmy(after.paidUpTo)}, due ${fmt(after.dueDays)} days`);
   // ── collect screen now shows the split in the working row ──
   await p.goto(`${BASE}/repay/${L.id}`, { waitUntil: "networkidle" });
   await p.waitForSelector("[data-work-days]", { timeout: 20000 });
   const wd = await p.locator("[data-work-days]").textContent();
-  ok(wd.includes(`${after.paidDays} days already paid`) && wd.includes(`${after.dueDays} days due`), `${W} working row: ${after.paidDays} already paid · ${after.dueDays} due`);
+  ok(wd.includes(`${fmt(after.paidDays)} days already paid`) && wd.includes(`${fmt(after.dueDays)} days due`), `${W} working row: ${fmt(after.paidDays)} already paid · ${fmt(after.dueDays)} due`);
   await ctx.close();
 }
 await browser.close(); await pool.end();

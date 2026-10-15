@@ -3,7 +3,7 @@ import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
 import { dues, roundUp10, interestCoverage } from "@/lib/engine.js";
-import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "@/lib/loanstate.js";
 import { viewUrl } from "@/lib/s3.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,9 +34,7 @@ export async function loadPosition(loanId, branchId) {
        FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
       WHERE lc.loan_id = $1 AND lc.removed_at IS NULL
       ORDER BY lc.added_at, lc.id`, [loanId]);
-  const receipts = await q(
-    `SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
-      WHERE loan_id = $1 ORDER BY business_date, id`, [loanId]);
+  const receipts = await q(RECEIPTS_FOR_REPLAY_SQL, [loanId]);
 
   const scheme = schemeFromRow(sv, slabs, loan.scheme_code);
   const state = replayLoan({ principalPaise: loan.principal_paise,

@@ -1,4 +1,4 @@
-import { schemeFromRow, buildEvents, replayLoan, chargeSnapshot, appropriationRows, penalRuleFor,
+import { schemeFromRow, buildEvents, replayLoan, chargeSnapshot, appropriationRows, splitFromRows,
          cashCapCheck, utrCheck, ENGINE_VERSION } from "../src/lib/loanstate.js";
 import { dues, applyPayment } from "../src/lib/engine.js";
 
@@ -83,7 +83,7 @@ console.log("\n§4 Replaying receipts reproduces the loan's position");
     receipts: [{ business_date: "2026-08-26", amount_paise: Math.round(payment * 100), closes_loan: false }] });
   eq("principal is untouched by an interest-only payment", replayed.principal, 4000000);
   eq("the cycle clock restarts the day AFTER the payment (R-L, owner 28 Aug 2026)",
-     replayed.cycleAnchor, "2026-08-27");
+     replayed.cycleStart, "2026-08-27");
   eq("the ₹118 charge is settled by the ₹120 billed", replayed.charges[0].paidExact, 12000);
   eq("₹2 of that is rounding income, not charge recovery",
      replayed.charges[0].paidExact - replayed.charges[0].amountExact, 200);
@@ -160,35 +160,32 @@ eq("a real reference passes", utrCheck("bank", "N0272026072700123").ok, true);
 
 console.log("\n§8 Every receipt records which engine priced it");
 eq("the engine version is stamped and not empty", ENGINE_VERSION.length > 0, true);
-eq("today's engine is 1.2.0 (penal clock = interest-unpaid period, 15 Oct 2026)", ENGINE_VERSION, "1.2.0");
+eq("today's engine is 1.3.0 (part payments buy days, 15 Oct 2026)", ENGINE_VERSION, "1.3.0");
 
-console.log("\n§9 Old receipts replay under the rule they were priced with (E31)");
+console.log("\n§9 A stored receipt is a FACT: it folds from its split, it is never re-priced (E37)");
 {
-  eq("1.1.0 → loan-age penal rule", penalRuleFor("1.1.0"), "loan_age");
-  eq("1.0.x → loan-age penal rule", penalRuleFor("1.0.9"), "loan_age");
-  eq("1.2.0 → interest-unpaid rule", penalRuleFor("1.2.0"), "unpaid_interest");
-  eq("no version (a payment priced now) → today's rule", penalRuleFor(undefined), "unpaid_interest");
-  const scheme = schemeFromRow(SBIND04, SLABS, "SB-IND04");       // tenure 185, grace 7, penal 2%
+  const scheme = schemeFromRow(SBIND04, SLABS, "SB-IND04");       // 15/18/24%, 365-day year
   const opening = { principalPaise: 10000000, disbursedAt: "2025-01-01", scheme };
-  // Day 100: interest paid (₹5,000 of it). Day 250: an OLD receipt (1.1.0) that
-  // paid the loan-age penal that existed then — its stored split must reproduce.
-  const old250 = replayLoan({ ...opening, receipts: [
-    { business_date: "2025-04-10", amount_paise: 500000, closes_loan: false, engine_version: "1.1.0" }] });
-  const dueOld = dues(scheme, old250, "2025-09-07", { penalRule: "loan_age" });
-  eq("loan-age rule on day 250 still prices penal after a day-100 part payment", dueOld.penal.due > 0, true);
-  eq("…while today's rule prices none (clock restarted on 11 Apr)",
-     dues(scheme, old250, "2025-09-07").penal.due, 0);
-  // the day-250 receipt stored under 1.1.0 paid that penal; replaying it under
-  // 1.2.0 would reject it (more than today's rule says is due) — versioning keeps it
-  const paidPenal = Math.round(dueOld.penal.due * 100);
-  const mixed = replayLoan({ ...opening, receipts: [
-    { business_date: "2025-04-10", amount_paise: 500000, closes_loan: false, engine_version: "1.1.0" },
-    { business_date: "2025-09-07", amount_paise: paidPenal, closes_loan: false, engine_version: "1.1.0" }] });
-  eq("old penal receipt replays cleanly and lands on penal", mixed.penalPaid === 0 && mixed.penalAnchor === "2025-09-08", true);
-  // the events carry the rule
-  const evs = buildEvents([], [{ business_date: "2025-09-07", amount_paise: 1000, closes_loan: false, engine_version: "1.1.0" },
-                               { business_date: "2025-09-08", amount_paise: 1000, closes_loan: false, engine_version: "1.2.0" }]);
-  eq("buildEvents tags each payment with its penal rule", evs.map(e => e.penalRule), ["loan_age", "unpaid_interest"]);
+  // Price a part payment today, then fold the SAME receipt from its stored rows: identical state.
+  const priced = replayLoan({ ...opening, receipts: [{ business_date: "2025-03-01", amount_paise: 100000, closes_loan: false }] });
+  const folded = replayLoan({ ...opening, receipts: [{ business_date: "2025-03-01", amount_paise: 100000, closes_loan: false, seals_cycle: false,
+    engine_version: "1.3.0", appropriation: [{ bucket: "interest", loanChargeId: null, amountPaise: 100000 }] }] });
+  eq("priced and folded agree on the days bought", [priced.paidDays.toFixed(6), priced.cycleStart], [folded.paidDays.toFixed(6), folded.cycleStart]);
+  eq("₹1,000 on day 60 at 15% (₹41.10/day) bought 24.33 days", priced.paidDays.toFixed(2), "24.33");
+  // An OLD receipt whose split says "all interest, cycle sealed" is honoured as such — even where
+  // today's rule would have priced that day differently (the split is the record, the engine is not re-run)
+  const old = replayLoan({ ...opening, receipts: [{ business_date: "2025-03-01", amount_paise: 300000, closes_loan: false, seals_cycle: true,
+    engine_version: "1.1.0", appropriation: [{ bucket: "interest", loanChargeId: null, amountPaise: 300000 }] }] });
+  eq("sealed flag closes the cycle the next day, days bought reset", [old.cycleStart, old.paidDays, old.lifetimeInterestPaid], ["2025-03-02", 0, 300000]);
+  // a stored split with charge + rounding: the rounding is handed back to the charge it completed
+  const st = replayLoan({ ...opening, charges: [{ id: 9, added_on: "2025-01-01", total_paise: 11800 }] });
+  const split = splitFromRows(st, [{ bucket: "charge", loanChargeId: 9, amountPaise: 11800 }, { bucket: "charge_rounding", loanChargeId: null, amountPaise: 200 },
+    { bucket: "interest", loanChargeId: null, amountPaise: 50000 }]);
+  eq("charge paid = exact ₹118 + ₹2 rounding = the ₹120 billed", split.charges[0].paid, 12000);
+  eq("interest carried as is", split.interest, 50000);
+  const evs = buildEvents([], [{ business_date: "2025-09-07", amount_paise: 1000, closes_loan: false, appropriation: [] },
+                               { business_date: "2025-09-08", amount_paise: 1000, closes_loan: false }]);
+  eq("buildEvents: a row with a split is a fact, a row without is priced", evs.map(e => e.type), ["split", "payment"]);
 }
 
 

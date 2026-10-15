@@ -13,7 +13,7 @@
  */
 import { q, one } from "@/lib/db.js";
 import { dues } from "@/lib/engine.js";
-import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "@/lib/loanstate.js";
 
 /** Indian financial year: 1 Apr – 31 Mar. Label "2026-27". */
 export function fyRange(label) {
@@ -102,9 +102,7 @@ export async function activePositions(branchIds) {
     const charges = await q(
       `SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on FROM loan_charge lc
         WHERE lc.loan_id=$1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [l.id]);
-    const receipts = await q(
-      `SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
-        WHERE loan_id=$1 ORDER BY business_date, id`, [l.id]);
+    const receipts = await q(RECEIPTS_FOR_REPLAY_SQL, [l.id]);
     const scheme = schemeFromRow(l, slabs, l.scheme_code);
     const state = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.disbursed_at,
       scheme, charges, receipts });
@@ -141,9 +139,7 @@ export async function bookPrincipalAt(branchIds, d) {
       `SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on FROM loan_charge lc
         WHERE lc.loan_id=$1 AND lc.removed_at IS NULL AND lc.added_at::date <= $2
         ORDER BY lc.added_at, lc.id`, [l.id, d]);
-    const receipts = await q(
-      `SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
-        WHERE loan_id=$1 AND business_date <= $2 ORDER BY business_date, id`, [l.id, d]);
+    const receipts = await q(`SELECT * FROM (${RECEIPTS_FOR_REPLAY_SQL}) x WHERE x.business_date <= $2 ORDER BY x.business_date, x.id`, [l.id, d]);
     const scheme = schemeFromRow(l, slabs, l.scheme_code);
     const state = replayLoan({ principalPaise: l.principal_paise,
       disbursedAt: l.disbursed_at, scheme, charges, receipts });

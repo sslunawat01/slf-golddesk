@@ -132,7 +132,7 @@ export async function POST(req, { params }) {
            interest_due_paise=EXCLUDED.interest_due_paise, penal_due_paise=EXCLUDED.penal_due_paise,
            lifetime_interest_paid_paise=EXCLUDED.lifetime_interest_paid_paise,
            engine_version=EXCLUDED.engine_version, computed_at=now()`,
-        [pos.loan.id, pos.state.cycleAnchor, pos.state.penalAnchor,
+        [pos.loan.id, pos.state.cycleStart, pos.state.penalAnchor,
          after._paise.interestDue, after._paise.penalDue, pos.state.lifetimeInterestPaid,
          ENGINE_VERSION]);
 

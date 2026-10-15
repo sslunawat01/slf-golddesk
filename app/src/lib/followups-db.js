@@ -5,7 +5,7 @@
  * through the same engine replay as the collect screen.
  */
 import { q, one } from "./db.js";
-import { schemeFromRow, replayLoan } from "./loanstate.js";
+import { schemeFromRow, replayLoan, RECEIPTS_FOR_REPLAY_SQL } from "./loanstate.js";
 import { dues, countDays } from "./engine.js";
 import { dueStatus, ptpStatus, suggestFor, rankSuggestions, labelType, labelChannel, labelOutcome } from "./followups.js";
 
@@ -36,8 +36,7 @@ export async function loanPosition(loanId, today) {
   const slabs = await q(`SELECT from_day, to_day, rate_pct FROM scheme_slab WHERE scheme_version_id=$1 ORDER BY from_day`, [loan.scheme_version_id]);
   const charges = await q(`SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on FROM loan_charge lc
                             WHERE lc.loan_id=$1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [loanId]);
-  const receipts = await q(`SELECT business_date::text AS business_date, amount_paise, closes_loan, engine_version
-                             FROM receipt WHERE loan_id=$1 ORDER BY business_date, id`, [loanId]);
+  const receipts = await q(RECEIPTS_FOR_REPLAY_SQL, [loanId]);
   const scheme = schemeFromRow(loan, slabs, loan.scheme_code);
   const state = replayLoan({ principalPaise: loan.principal_paise, disbursedAt: loan.disbursed_at, scheme, charges, receipts });
   const d = loan.status === "active" ? dues(scheme, state, today) : null;
@@ -45,7 +44,7 @@ export async function loanPosition(loanId, today) {
     loanNo: loan.loan_no, status: loan.status, principalPaise: Number(state.principal),
     dueTodayPaise: d ? d._paise.settlement : 0,
     interestDuePaise: d ? d._paise.interestDue : 0, penalDuePaise: d ? d._paise.penalDue : 0,
-    unpaidDays: countDays(state.interestClock || loan.disbursed_at, today),
+    unpaidDays: Math.round(d ? d.unpaidDays : 0),
     ageDays: countDays(loan.disbursed_at, today),
     tenureDays: Number(loan.tenure_days), graceDays: Number(loan.penal_grace_days || 0),
     receipts,

@@ -26,6 +26,7 @@ const D = (base, n) => { // base date + n days → ISO
   return d.toISOString().slice(0,10);
 };
 const T0 = "2026-05-01"; // disbursement date used throughout
+const dmyT = (iso) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
 
 // ——— schemes from the seed canon ———
 const SB_IND04 = {
@@ -79,7 +80,7 @@ console.log("\n§2 Minimum-interest: a lifetime floor on EVERY payment (R-E, ame
   eq("the floor covers days 1–15; the first chargeable day after it", first.interest.minCoversUpto, D(T0, 15));
   applyPayment(GL2070, L, { date: D(T0, 3), amount: first.interest.due });
   eq("the clock restarts where the paid days run out, not on the payment date",
-     L.cycleAnchor, D(T0, 15));
+     L.cycleStart, D(T0, 15));
 
   const second = dues(GL2070, L, D(T0, 20));
   eq("he returns on D(T0,20) and owes only the 6 days 16–21 (R-L)", second.cycleDays, 6);
@@ -120,12 +121,38 @@ console.log("\n§3 Cycle anchoring — Q4-B (payment seals period, slab clock re
   // and the counterfactual: never paying costs 3950 (proved in §1) — paying saved ₹650
 }
 {
-  // Partial interest payment must NOT seal the cycle (Q4 corollary)
+  // R-C (owner, 15 Oct 2026): a PART payment buys DAYS at that day's rate, never seals, never re-prices
   const L = openLoan({ principal: 100000, disbursedAt: T0 });
-  const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 60), amount: 1000 });
+  const { receipt } = applyPayment(SB_IND04, L, { date: D(T0, 60), amount: 1000 });   // day 61 @15% = ₹41.0959/day
   eq("partial does not seal", receipt.sealsCycle, false);
-  const d80 = dues(SB_IND04, L, D(T0, 80));
-  eq("day-80 still one 81-day cycle, credit applied", d80.interest.due, 4000 - 1000);
+  eq("₹1,000 on day 61 buys 24.33 days", [receipt.daysBought.toFixed(2), L.paidDays.toFixed(2), L.cycleStart], ["24.33", "24.33", T0]);
+  eq("paid up to day 24 (whole days), first unpaid day is day 25", [receipt.paidUpTo, L.reachedPct], [D(T0, 23), 15]);
+  const d80 = dues(SB_IND04, L, D(T0, 80));                        // 81 cycle days − 24.33 = 56.67 unpaid
+  eq("day 81: 56.67 unpaid days are still on the first slab → 15%, ₹2,330 (not ₹3,000 re-priced)",
+     [d80.unpaidDays.toFixed(2), d80.ratePct, d80.interest.due], ["56.67", 15, 2330]);
+  eq("work line names the unpaid period", d80.interest.workLine, `Unpaid 56.67 days (${dmyT(D(T0, 24))} to ${dmyT(D(T0, 80))}) @ 15% (slab 0–62 reached)`);
+  // the slab is crossed when the UNPAID days reach 63 — 24.33 days later than the calendar would say
+  eq("cycle day 86: 61.67 unpaid → still 15%", dues(SB_IND04, L, D(T0, 85)).ratePct, 15);
+  eq("cycle day 87: 62.67 unpaid → day 63 begun → 18%", dues(SB_IND04, L, D(T0, 86)).ratePct, 18);
+}
+{
+  // R-C ratchet: a part payment never LOWERS the rate; only a full payment resets it
+  const L = openLoan({ principal: 100000, disbursedAt: T0 });
+  const d100 = dues(SB_IND04, L, D(T0, 99));                      // day 100 @18%
+  eq("day 100 is on the 18% slab", d100.ratePct, 18);
+  applyPayment(SB_IND04, L, { date: D(T0, 99), amount: 3000 });    // ₹49.315/day → 60.83 days
+  eq("₹3,000 at 18% buys 60.83 days; 39.17 unpaid", [L.paidDays.toFixed(2), dues(SB_IND04, L, D(T0, 99)).unpaidDays.toFixed(2)], ["60.83", "39.17"]);
+  const d120 = dues(SB_IND04, L, D(T0, 119));                     // 120 − 60.83 = 59.17 unpaid: slab says 15%, ratchet keeps 18%
+  eq("day 120: 59.17 unpaid days stay at 18% (rate kept) → ₹2,920", [d120.ratePct, d120.interest.due], [18, 2920]);
+  eq("work line says the rate is kept", /18% kept until interest is paid in full/.test(d120.interest.workLine), true);
+  const full = applyPayment(SB_IND04, L, { date: D(T0, 119), amount: 2920 });
+  eq("paying every rupee of interest seals the cycle", full.receipt.sealsCycle, true);
+  const d130 = dues(SB_IND04, L, D(T0, 129));
+  eq("…and the next cycle starts at day 1, 15%: 10 days → ₹420", [L.cycleStart, d130.ratePct, d130.interest.due], [D(T0, 120), 15, 420]);
+  // ₹10 short is NOT full (owner: "even ₹10 short does not reset")
+  const M = openLoan({ principal: 100000, disbursedAt: T0 });
+  const r = applyPayment(SB_IND04, M, { date: D(T0, 99), amount: dues(SB_IND04, M, D(T0, 99)).interest.due - 10 });
+  eq("₹10 short: not sealed, days bought instead", [r.receipt.sealsCycle, M.reachedPct, M.paidDays > 99], [false, 18, true]);
 }
 
 console.log("\n§4 Penal — Q7-B with grace-forgiveness cliff (R-I)");
@@ -152,45 +179,45 @@ console.log("\n§4b Penal anchor — paying penal must not re-charge the same da
   const d210 = dues(SB_IND04, L, D(T0, 210));
   // R-I amended 15 Oct 2026: the interest payment on day 200 restarted the
   // penal clock — penal returns only after tenure+grace more unpaid days.
-  eq("day-210 penal is ZERO under today's rule (clock restarted on day 200)", d210.penal.due, 0);
-  eq("day-210 penal 10 fresh days under the 1.1.x loan-age rule (old receipts replay so)",
-     dues(SB_IND04, L, D(T0, 210), { penalRule: "loan_age" }).penal.due, 60);
+  eq("day-210 penal is ZERO (the full interest payment on day 200 ended the penal period)", d210.penal.due, 0);
   eq("day-210 interest = fresh 10-day cycle", d210.interest.due, 420);
 }
 
-console.log("\n§4c Penal clock = interest-unpaid period (owner, 15 Oct 2026)");
+console.log("\n§4c Penal on UNPAID days, frozen once started (owner, 15 Oct 2026)");
 {
   // SB_IND04: tenure 185, grace 7, penal 2%. ₹1,00,000.
   const L = openLoan({ principal: 100000, disbursedAt: T0 });
-  // a PART payment of interest on day 100 (₹500 of the ₹4,560 due) restarts the clock
-  applyPayment(SB_IND04, L, { date: D(T0, 100), amount: 500 });
-  eq("part payment moved the clock to day 101", L.interestClock, D(T0, 101));
-  eq("cycle anchor did NOT move (R-C: partial never seals)", L.cycleAnchor, T0);
-  eq("loan age 250 but interest unpaid 150 days → no penal", dues(SB_IND04, L, D(T0, 250)).penal.due, 0);
-  // unpaid days hit 186…192 (loan days 286…292) → grace window, still zero
-  eq("unpaid day 186 (loan day 286) → in grace, ₹0", dues(SB_IND04, L, D(T0, 286)).penal.inGraceWindow, true);
-  eq("unpaid day 192 (loan day 292) → still ₹0", dues(SB_IND04, L, D(T0, 292)).penal.due, 0);
-  // unpaid day 193 → charged from unpaid day 186: 8 days of 2% on ₹1,00,000 = ₹43.84 → ₹50
-  const d293 = dues(SB_IND04, L, D(T0, 293));
-  eq("unpaid day 193 → penal counts from day tenure+1 (8 days → ₹50)", d293.penal.due, 50);
-  eq("penal days reported", d293.penal.days, 8);
-  eq("clockFrom reported", d293.penal.clockFrom, D(T0, 101));
-  // ₹300 paid on loan day 300 goes to penal first (R-G) — penal ₹90 (15d), interest gets the rest → clock restarts
-  const d300 = dues(SB_IND04, L, D(T0, 300));
-  eq("day-300 penal (15 days)", d300.penal.due, 90);
-  const r = applyPayment(SB_IND04, L, { date: D(T0, 300), amount: 300 });
-  eq("₹300: penal cleared first, remainder to interest", [r.receipt.appropriation.penal, r.receipt.appropriation.interest], [90, 210]);
-  eq("clock restarted on day 301", L.interestClock, D(T0, 301));
-  eq("day-400 (unpaid 100 days) → no penal", dues(SB_IND04, L, D(T0, 400)).penal.due, 0);
-  // a payment too small to reach interest does NOT restart the clock
+  applyPayment(SB_IND04, L, { date: D(T0, 100), amount: 500 });     // day 101 @18% (₹49.315/day): 10.14 days
+  eq("₹500 on day 101 buys 10.14 days", L.paidDays.toFixed(2), "10.14");
+  eq("paid up to day 10; interest unpaid from day 11", dues(SB_IND04, L, D(T0, 100)).penal.clockFrom, D(T0, 10));
+  // unpaid days = cycle days − 10.14: the grace window is unpaid 186…192 → cycle days 196…202
+  eq("cycle day 196 (185.86 unpaid) → in grace, ₹0", [dues(SB_IND04, L, D(T0, 195)).penal.inGraceWindow, dues(SB_IND04, L, D(T0, 195)).penal.due], [true, 0]);
+  eq("cycle day 202 (191.86 unpaid) → still ₹0", dues(SB_IND04, L, D(T0, 201)).penal.due, 0);
+  const d203 = dues(SB_IND04, L, D(T0, 202));                       // 192.86 unpaid → penal runs from unpaid day 186
+  eq("cycle day 203 (192.86 unpaid) → penal from unpaid day 186 = cycle day 196: 8 days → ₹50", [d203.penal.running, d203.penal.from, d203.penal.days, d203.penal.due], [true, D(T0, 195), 8, 50]);
+  // ₹300 on that day: penal ₹50 first (R-G), ₹250 buys days at 24% (₹65.75/day = 3.80 days) — penal does NOT stop
+  const r = applyPayment(SB_IND04, L, { date: D(T0, 202), amount: 300 });
+  eq("₹300: penal cleared first, remainder buys interest days", [r.receipt.appropriation.penal, r.receipt.appropriation.interest, L.paidDays.toFixed(2)], [50, 250, "13.94"]);
+  eq("the penal start is frozen on the state", L.penalFrom, D(T0, 195));
+  const d211 = dues(SB_IND04, L, D(T0, 210));
+  eq("cycle day 211: penal keeps running — 8 fresh days since the settlement → ₹50", [d211.penal.days, d211.penal.due], [8, 50]);
+  // a big part payment pulls the unpaid days BELOW the tenure — penal still runs (owner Q13)
+  applyPayment(SB_IND04, L, { date: D(T0, 210), amount: 7050 });    // ₹50 penal + ₹7,000 interest = 106.46 days
+  const d221 = dues(SB_IND04, L, D(T0, 220));
+  eq("after buying 106 days the unpaid period is 100.6 days (< tenure)…", d221.unpaidDays.toFixed(1), "100.6");
+  eq("…yet penal still runs: 10 days → ₹60, and the 24% rate is kept", [d221.penal.due, d221.ratePct, d221.interest.due], [60, 24, 6620]);
+  // only a FULL interest payment (which pays the penal first) ends it
+  const full = applyPayment(SB_IND04, L, { date: D(T0, 220), amount: 6620 + 60 });
+  eq("full interest + penal seals the cycle and ends the penal period", [full.receipt.sealsCycle, L.penalFrom, L.penalAnchor], [true, null, null]);
+  const d231 = dues(SB_IND04, L, D(T0, 230));
+  eq("fresh cycle: 10 days @15% → ₹420, no penal", [d231.interest.due, d231.penal.due, d231.penal.running], [420, 0, false]);
+  // a payment too small to reach interest buys no days and leaves penal running
   const M = openLoan({ principal: 100000, disbursedAt: T0 });
-  const m300 = dues(SB_IND04, M, D(T0, 300));                      // penal 116 days
-  applyPayment(SB_IND04, M, { date: D(T0, 300), amount: Math.min(m300.penal.due - 10, 100 * Math.floor((m300.penal.due - 10) / 100)) || 100 });
-  eq("payment swallowed by penal → clock stays at disbursement", M.interestClock, T0);
-  // no payment ever: both rules agree (canonical ₹0/₹50/₹360 unchanged)
-  const N = openLoan({ principal: 100000, disbursedAt: T0 });
-  eq("never paid → same as loan-age rule", dues(SB_IND04, N, D(T0, 250)).penal.due,
-     dues(SB_IND04, N, D(T0, 250), { penalRule: "loan_age" }).penal.due);
+  const m300 = dues(SB_IND04, M, D(T0, 300));                      // penal 116 days → ₹640
+  eq("never paid, day 301: penal from day 186, 116 days → ₹640", [m300.penal.days, m300.penal.due], [116, 640]);
+  applyPayment(SB_IND04, M, { date: D(T0, 300), amount: 300 });
+  eq("₹300 swallowed by penal → no days bought, ₹300 toward penal", [M.paidDays, M.penalPaid], [0, 30000]);
+  eq("penal still due after the part payment", dues(SB_IND04, M, D(T0, 300)).penal.due, 340);
 }
 
 console.log("\n§5 Charges rounding → Rounding income (owner's ₹180 rule)");
@@ -226,7 +253,7 @@ console.log("\n§7 Prospective mode stays available as scheme config");
   const prosp = { ...SB_IND04, slabMode: "prospective" };
   const L = openLoan({ principal: 100000, disbursedAt: T0 });
   const d = dues(prosp, L, D(T0, 80));
-  eq("prospective day-80 raw (81 days: 62@15 + 19@18)", d.interest.raw, 3484.94);
+  eq("prospective day-80 raw (81 days: 62@15 + 19@18; summed exactly, then rounded to paise)", d.interest.raw, 3484.93);
   eq("prospective day-80 due", d.interest.due, 3490);
 }
 
@@ -251,6 +278,7 @@ console.log("\n§10 Interest coverage in DAYS — paid up to / due for (owner, 1
     slabs:[{fromDay:0,toDay:62,ratePct:18},{fromDay:63,toDay:185,ratePct:24}],
     minInterestDays:15, tenureDays:185, penalRatePct:6, penalGraceDays:7 };
   validateScheme(IND04);
+  const f2 = (x) => Number(x).toFixed(2);
   const A = "2026-02-25", TODAY = "2026-10-15";
   // 1 · nothing ever paid, day 233
   let st = openLoan({ principal: 15800, disbursedAt: A });
@@ -258,15 +286,16 @@ console.log("\n§10 Interest coverage in DAYS — paid up to / due for (owner, 1
   eq("day 233: cycle from disbursement, 233 days, priced at 24%", [c.cycleFrom, c.cycleDays, c.ratePct, c.ageDays], [A, 233, 24, 233]);
   eq("nothing paid: paid up to the day BEFORE disbursement, 0 days", [c.paidUpTo, c.paidDays, c.paidDaysTotal], ["2026-02-24", 0, 0]);
   eq("due for all 233 days, 25 Feb → 15 Oct, ₹2,460", [c.dueDays, c.dueFrom, c.dueTo, c.interestDuePaise], [233, A, TODAY, 246000]);
-  eq("per-day figure 15,800 × 24% / 360 = ₹10.5333", Math.round(c.perDayPaise) , 1053);
-  // 2 · a ₹1,000 part payment today: penal ₹130 first, ₹870 reaches interest → 82 whole days
+  eq("per-day figure 15,800 × 24% / 360 = ₹10.5333", Math.round(c.perDayPaise), 1053);
+  // 2 · a ₹1,000 part payment today: penal ₹130 first, ₹870 reaches interest → 82.59 days
   let pv = paymentCoverage(c, 87000);
-  eq("₹870 buys 82 days: 25 Feb → 17 May", [pv.clearsAll, pv.coversDays, pv.coversFrom, pv.coversTo], [false, 82, A, "2026-05-17"]);
-  eq("151 days (₹1,590) stay unpaid", [pv.remainingDays, pv.remainingPaise, pv.paidUpToAfter], [151, 159000, "2026-05-17"]);
+  eq("₹870 buys 82.59 days: 25 Feb → 17 May (82 whole days)", [pv.clearsAll, f2(pv.coversDays), pv.coversFrom, pv.coversTo], [false, "82.59", A, "2026-05-17"]);
+  eq("150.41 days (₹1,590) stay unpaid", [f2(pv.remainingDays), pv.remainingPaise, pv.paidUpToAfter], ["150.41", 159000, "2026-05-17"]);
   applyPayment(IND04, st, { date: TODAY, amount: 1000 });
   c = interestCoverage(IND04, st, "2026-10-16");
-  eq("next day: paid up to 17 May (82 days), due 152 days from 18 May", [c.paidUpTo, c.paidDays, c.paidDaysTotal, c.dueDays, c.dueFrom, c.dueTo], ["2026-05-17", 82, 82, 152, "2026-05-18", "2026-10-16"]);
-  eq("paid + due = the cycle's length", c.paidDays + c.dueDays, c.cycleDays);
+  eq("next day: paid up to 17 May (82.59 days), due 151.41 days from 18 May", [c.paidUpTo, f2(c.paidDays), f2(c.paidDaysTotal), f2(c.dueDays), c.dueFrom, c.dueTo], ["2026-05-17", "82.59", "82.59", "151.41", "2026-05-18", "2026-10-16"]);
+  eq("paid + due = the cycle's length", f2(c.paidDays + c.dueDays), f2(c.cycleDays));
+  eq("151.41 unpaid days at 24% = ₹1,594.85 → ₹1,600", c.interestDuePaise, 160000);
   // 3 · full interest + penal today (₹2,590) clears everything up to today
   st = openLoan({ principal: 15800, disbursedAt: A });
   c = interestCoverage(IND04, st, TODAY);
@@ -288,21 +317,23 @@ console.log("\n§10 Interest coverage in DAYS — paid up to / due for (owner, 1
   eq("6 Oct: paid up to 15 Oct, 9 days in advance, nothing due", [c.paidUpTo, c.advanceDays, c.dueDays, c.paidDaysTotal], ["2026-10-15", 9, 0, 15]);
   c = interestCoverage(IND04, st, "2026-10-16");
   eq("16 Oct: the advance is used up, 1 day due", [c.advanceDays, c.dueDays, c.dueFrom], [0, 1, "2026-10-16"]);
-  // 5 · R-B retroactive: crossing day 62 re-prices the cycle, so the same rupees buy FEWER days
+  // 5 · days bought are FINAL (owner Q3): ₹400 on day 60 at 18% = 50.63 days, still 50.63 days on day 63
   st = openLoan({ principal: 15800, disbursedAt: A });
-  applyPayment(IND04, st, { date: D(A, 59), amount: 400 });           // day 60 at 18%: ₹7.90/day → 50 days
-  eq("day 61: ₹400 bought 50 days at 18%", interestCoverage(IND04, st, D(A, 60)).paidDays, 50);
-  eq("day 63: the cycle now prices at 24% (₹10.53/day) — the same ₹400 covers 37 days", interestCoverage(IND04, st, D(A, 62)).paidDays, 37);
-  // 6 · prospective slabs: each day at its own rate
+  applyPayment(IND04, st, { date: D(A, 59), amount: 400 });           // ₹7.90/day
+  eq("day 61: ₹400 bought 50.63 days at 18%", f2(interestCoverage(IND04, st, D(A, 60)).paidDays), "50.63");
+  eq("day 63 and after: still 50.63 days — never re-priced", f2(interestCoverage(IND04, st, D(A, 90)).paidDays), "50.63");
+  eq("…and the unpaid period is still on the 18% slab (40.37 days)", [f2(interestCoverage(IND04, st, D(A, 90)).dueDays), interestCoverage(IND04, st, D(A, 90)).ratePct], ["40.37", 18]);
+  // 6 · prospective slabs: each unpaid day at its own rate
   const PRO = { ...IND04, code:"PRO", slabMode:"prospective", slabs:[{fromDay:0,toDay:10,ratePct:18},{fromDay:11,toDay:185,ratePct:24}] };
   st = openLoan({ principal: 36000, disbursedAt: A });              // ₹18/day then ₹24/day
-  st.interestPaidInCycle = 30000;                                   // ₹300 part-paid
-  eq("prospective: ₹300 = 10 days @ ₹18 + 5 days @ ₹24 = 15 days", interestCoverage(PRO, st, D(A, 19)).paidDays, 15);
-  // 7 · nothing typed yet / zero to interest
+  const d20 = dues(PRO, st, D(A, 19));                              // 20 unpaid days: 10 × 18 + 10 × 24
+  eq("prospective: 20 unpaid days = 10 @ ₹18 + 10 @ ₹24 = ₹420", d20.interest.due, 420);
+  // 7 · nothing typed yet / less than a day
   st = openLoan({ principal: 15800, disbursedAt: A });
   c = interestCoverage(IND04, st, TODAY);
   eq("₹0 to interest: nothing covered, all 233 days remain", [paymentCoverage(c, 0).coversDays, paymentCoverage(c, 0).remainingDays], [0, 233]);
-  eq("a part that is less than one day still leaves every day due", [paymentCoverage(c, 500).coversDays, paymentCoverage(c, 500).remainingDays], [0, 233]);
+  const tiny = paymentCoverage(c, 500);
+  eq("₹5 buys 0.47 of a day; the paid-up-to date does not move", [f2(tiny.coversDays), tiny.coversTo, f2(tiny.remainingDays)], ["0.47", "2026-02-24", "232.53"]);
 }
 
 console.log(`\n${pass} passed · ${fail} failed`);
