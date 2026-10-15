@@ -23,6 +23,8 @@ const GROUPS = [
      "Every active loan priced today: principal + interest + charges = total due"],
     ["/reports/loandetails", "▤", "Loan Details",
      "The full dossier of one loan — ornaments to release, printable"],
+    ["/reports/followups", "☎", "Follow-up Register",
+     "Due, done and promised — every customer contact, with kept / broken promises and a per-staff tally"],
   ]],
   ["Cash / Bank / Financial", [
     ["/reports/daybook", "🗓", "DayBook",

@@ -57,6 +57,7 @@ export default function LoanDetailsClient() {
               {fact("Penal", L.terms.penalRatePct
                 ? `${L.terms.penalRatePct}% after ${L.terms.penalGraceDays}d grace` : "none")}
             </div>
+            {L.remark && <div style={{ marginTop: 12, fontSize: 13.5 }}><b>Remark:</b> {L.remark}</div>}
           </div>
 
           {P && (<>
@@ -80,8 +81,7 @@ export default function LoanDetailsClient() {
               csv: v => (v / 1000).toFixed(3) },
             { key: "netMg", label: "Net", num: true, fmt: v => gm(v / 1000), total: "sum",
               csv: v => (v / 1000).toFixed(3) },
-            { key: "marketPaise", label: "Market ₹", num: true, fmt: inrP, total: "sum" },
-            { key: "fundingPaise", label: "Lendable ₹", num: true, fmt: inrP, total: "sum" },
+            { key: "fundingPaise", label: "Funding ₹", num: true, fmt: inrP, total: "sum" },
           ]} rows={data.items} empty="No items on file." />
 
           <H>Disbursement</H>
@@ -90,6 +90,12 @@ export default function LoanDetailsClient() {
             { key: "kind", label: "Mode" },
             { key: "fromAccount", label: "From SLF Account", fmt: v => v || "—" },
             { key: "toAccount", label: "To Customer A/c", fmt: v => v || "cash in hand" },
+            // E29: a payout to an UNVERIFIED account names who confirmed it
+            { key: "unverifiedAckBy", label: "Account at Payout",
+              fmt: (v, r) => !r.toAccount ? "—" : v
+                ? <span className="chip warn">unverified — confirmed by {v}</span>
+                : <span className="chip ok">verified</span>,
+              csv: (v, r) => !r.toAccount ? "" : v ? `unverified, confirmed by ${v}` : "verified" },
             { key: "utr", label: "UTR" },
             { key: "by", label: "By" },
             { key: "amountPaise", label: "Amount ₹", num: true, fmt: inrP, total: "sum" },

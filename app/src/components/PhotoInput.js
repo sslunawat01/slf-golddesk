@@ -1,5 +1,6 @@
 "use client";
 import { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 /**
  * Camera/file capture that compresses BEFORE upload.
@@ -35,15 +36,25 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
    */
   async function openCamera() {
     setErr(null);
+    // E32 №1 (owner, 15 Oct 2026): a laptop without a camera, or a browser that
+    // refuses, must not leave the operator stuck — fall straight through to the
+    // file chooser (which on phones opens the camera app anyway).
+    if (!navigator.mediaDevices?.getUserMedia) { ref.current?.click(); return; }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } }, audio: false });
       setCam(stream);
       setTimeout(() => { if (videoRef.current) videoRef.current.srcObject = stream; }, 50);
-    } catch {
-      setErr("Camera not allowed — permit it in the browser, or choose a file");
+    } catch (e) {
+      const noCam = /NotFound|Devices|OverconstrainedError/i.test(String(e?.name || e));
+      setErr(noCam ? "No camera on this device — choose a photo file instead"
+                   : "Camera not allowed — permit it in the browser, or choose a file");
+      ref.current?.click();
     }
   }
+  /** Modals go to <body>: a card with its own stacking/transform or a pop-up
+   *  above them can otherwise hide the Take-photo button (E32 №1). */
+  const portal = (node) => (node && typeof document !== "undefined") ? createPortal(node, document.body) : null;
   function closeCamera() { cam?.getTracks().forEach(t => t.stop()); setCam(null); }
   const [edit, setEdit] = useState(null);   // E21 №1: { dataUrl, rot, crop } after a snap
   const editImgRef = useRef(null);
@@ -132,10 +143,11 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
     if (ref.current && e?.target === ref.current) ref.current.value = "";
   }
 
-  const editorModal = edit && (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.88)", zIndex: 61,
-      display: "grid", placeItems: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 14, maxWidth: 600, width: "100%" }}>
+  const editorModal = portal(edit && (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.88)", zIndex: 10060,
+      display: "grid", placeItems: "center", padding: 16, overflowY: "auto" }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 14, maxWidth: 600, width: "100%",
+        maxHeight: "calc(100vh - 32px)", overflowY: "auto" }}>
         <div style={{ fontSize: 12, fontWeight: 800, color: "var(--mut)", marginBottom: 8 }}>
           Drag on the photo to crop · ↻ to rotate</div>
         <div style={{ position: "relative", display: "inline-block", maxWidth: "100%",
@@ -177,20 +189,25 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
           </span>
         </div>
       </div>
-    </div>);
+    </div>));
 
-  const cameraModal = cam && (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.85)", zIndex: 60,
-      display: "grid", placeItems: "center", padding: 16 }}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: 14, maxWidth: 560, width: "100%" }}>
+  // The preview is capped at 60% of the screen so the buttons are ALWAYS on
+  // screen — a phone held upright gives a tall 9:16 picture that used to push
+  // "Take photo" below the fold (E32 №1).
+  const cameraModal = portal(cam && (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.85)", zIndex: 10050,
+      display: "grid", placeItems: "center", padding: 16, overflowY: "auto" }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: 14, maxWidth: 560, width: "100%",
+        maxHeight: "calc(100vh - 32px)", display: "flex", flexDirection: "column", gap: 10 }}>
         <video ref={videoRef} autoPlay playsInline muted
-          style={{ width: "100%", borderRadius: 12, background: "#000" }} />
-        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 10 }}>
+          style={{ width: "100%", maxHeight: "60vh", objectFit: "contain", borderRadius: 12, background: "#000" }} />
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
           <button type="button" className="btn ghost" onClick={closeCamera}>Cancel</button>
-          <button type="button" className="btn green" onClick={snap}>📸 Take photo</button>
+          <button type="button" className="btn green" onClick={snap}
+            style={{ fontSize: 16, padding: "12px 22px", fontWeight: 900 }}>📸 Take photo</button>
         </div>
       </div>
-    </div>);
+    </div>));
 
   const box = compact
     ? { width: 34, height: 34, borderRadius: 8 }
@@ -202,14 +219,16 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
       {cameraModal}{editorModal}
       <button type="button" disabled={busy} onClick={openCamera} title="use the camera"
         style={{ border: "1px solid #cfc9ba", background: "#fff", borderRadius: 9,
-          padding: "6px 8px", minHeight: 34, cursor: "pointer", fontSize: 13, marginRight: 4 }}>
-        📸</button>
+          padding: "6px 10px", minHeight: 34, cursor: "pointer", fontSize: 13, fontWeight: 800,
+          marginRight: 4, whiteSpace: "nowrap" }}>
+        {/* E32 №1: a bare icon was invisible on laptops — say what it does */}
+        📸 Take photo</button>
       <button type="button" disabled={busy} onClick={() => ref.current?.click()} title="choose a file"
         style={{ border: "1px solid #cfc9ba", background: "#fff", borderRadius: 9, padding: "6px 10px",
           minHeight: 34, cursor: "pointer", fontSize: 13, fontWeight: 800, whiteSpace: "nowrap" }}>
         {/* E16 №3/№7 (owner, 29 Aug 2026): a bare camera icon is invisible —
             compact mode now says what the button does when a label is given */}
-        {busy ? "…" : (label ? `📷 ${label}` : "📷")}</button>
+        {busy ? "…" : (label ? `📁 ${label}` : "📁 Choose file")}</button>
       {err && <span className="chip bad" style={{ marginLeft: 6 }}>{err}</span>}
       <input ref={ref} type="file" accept="image/*" capture="environment" multiple={multiple}
         style={{ display: "none" }} onChange={pick} />
@@ -235,7 +254,7 @@ export default function PhotoInput({ kind, label, square = false, multiple = fal
           <button type="button" disabled={busy} onClick={openCamera}
           style={{ border: "1px dashed #b9b29e", background: "#fff", borderRadius: 10,
             padding: "9px 13px", cursor: "pointer", fontSize: 13.5, fontWeight: 800 }}>
-          📸 Camera</button>
+          📸 Take photo</button>
         <button type="button" disabled={busy} onClick={() => ref.current?.click()}
             style={{ ...box, border: "2px dashed #cfc9ba", background: "#faf9f4", cursor: "pointer",
                      color: "var(--mut)", fontSize: 12, fontWeight: 700, display: "grid",

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * №10 — Appraisal note, print-ready. Frozen layout: item grid (Item / Qty /
- * Gross / Net / Purity / Market value), the three totals, two valuer
+ * Gross / Net / Purity / Funding value), the totals, two valuer
  * signature blocks. Data straight from appraisal_item snapshots — the figures
  * the loan was actually sanctioned on, not today's recomputation.
  */
@@ -35,7 +35,7 @@ export default async function AppraisalPrintPage({ params }) {
   if (!loan) notFound();
 
   const items = await q(
-    `SELECT ai.qty, ai.gross_mg, ai.stone_mg, ai.purity_pct_snapshot, ai.market_paise,
+    `SELECT ai.qty, ai.gross_mg, ai.stone_mg, ai.purity_pct_snapshot,
             ai.funding_paise, i.print_name, p.karat
        FROM appraisal_item ai
        JOIN item i ON i.id = ai.item_id
@@ -47,7 +47,6 @@ export default async function AppraisalPrintPage({ params }) {
     ? await one(`SELECT full_name FROM employee WHERE id=$1`, [loan.valuer2_id]) : null;
 
   const netMg = items.reduce((s, r) => s + (Number(r.gross_mg) - Number(r.stone_mg)), 0);
-  const market = items.reduce((s, r) => s + Number(r.market_paise), 0);
   const funding = items.reduce((s, r) => s + Number(r.funding_paise), 0);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -73,7 +72,7 @@ export default async function AppraisalPrintPage({ params }) {
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr",
             background: "#f4f2ec", fontWeight: 800, fontSize: 11, padding: "8px 10px" }}>
             <div>Item</div><div>Qty</div><div>Gross g</div><div>Net g</div>
-            <div>Purity</div><div>Market value</div></div>
+            <div>Purity</div><div>Funding value</div></div>
           {items.map((r, i) => (
             <div key={i} style={{ display: "grid",
               gridTemplateColumns: "2fr 1fr 1fr 1fr 1fr 1fr" }}>
@@ -82,13 +81,12 @@ export default async function AppraisalPrintPage({ params }) {
               <div style={cell}>{g(r.gross_mg)}</div>
               <div style={cell}>{g(Number(r.gross_mg) - Number(r.stone_mg))}</div>
               <div style={cell}>{r.karat} · {Number(r.purity_pct_snapshot)}%</div>
-              <div style={cell}>{inr(r.market_paise)}</div>
+              <div style={cell}>{inr(r.funding_paise)}</div>
             </div>))}
         </div>
 
         <div style={{ display: "flex", gap: 24, margin: "16px 0", fontSize: 13 }}>
           <div>Net weight: <b>{g(netMg)} g</b></div>
-          <div>Valuation: <b>{inr(market)}</b></div>
           <div>Funding value: <b>{inr(funding)}</b></div>
         </div>
         <div style={{ fontSize: 12.5 }}>Sanctioned principal: <b>{inr(loan.principal_paise)}</b>

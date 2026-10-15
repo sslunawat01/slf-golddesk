@@ -35,7 +35,9 @@ export async function GET() {
   const rows = await dueList(actor.actingBranchId);
   const today = (await one(`SELECT CURRENT_DATE::text AS d`)).d;
   const holidays = (await q(
-    `SELECT day::text AS d FROM holiday WHERE (branch_id IS NULL OR branch_id = $1)`,
+    // E28: the column is on_date — `day` failed silently (.catch) so the
+    // 7-working-day countdown never skipped a holiday
+    `SELECT on_date::text AS d FROM holiday WHERE (branch_id IS NULL OR branch_id = $1)`,
     [actor.actingBranchId]).catch(() => [])).map(r => r.d);
 
   return NextResponse.json({ ok: true, today, holidays,

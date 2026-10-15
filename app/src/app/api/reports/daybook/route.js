@@ -36,10 +36,16 @@ export async function GET(req) {
          LEFT JOIN employee ee ON ee.id = dc.end_signed_by
         WHERE dc.branch_id=$1 AND dc.business_date=$2`, [branchId, date]);
 
+    // E32 №9 (owner, 15 Oct 2026): each payment carries its stored split —
+    // charges / penal / interest / principal — read from receipt_appropriation
     const receipts = await q(
-      `SELECT r.id, r.receipt_no, r.amount_paise, r.mode, r.utr, r.received_at,
-              l.loan_no, c.full_name AS customer, sa.nickname AS slf_account,
-              e.full_name AS by_name
+      `SELECT r.id, r.receipt_no, r.amount_paise, r.mode, r.utr, r.received_at, r.closes_loan,
+              l.loan_no, c.full_name AS customer, c.cust_no, sa.nickname AS slf_account,
+              e.full_name AS by_name,
+              coalesce((SELECT sum(ra.amount_paise) FROM receipt_appropriation ra WHERE ra.receipt_id=r.id AND ra.bucket IN ('charge','charge_rounding')),0)::bigint AS charges_paise,
+              coalesce((SELECT sum(ra.amount_paise) FROM receipt_appropriation ra WHERE ra.receipt_id=r.id AND ra.bucket='penal'),0)::bigint AS penal_paise,
+              coalesce((SELECT sum(ra.amount_paise) FROM receipt_appropriation ra WHERE ra.receipt_id=r.id AND ra.bucket='interest'),0)::bigint AS interest_paise,
+              coalesce((SELECT sum(ra.amount_paise) FROM receipt_appropriation ra WHERE ra.receipt_id=r.id AND ra.bucket='principal'),0)::bigint AS principal_paise
          FROM receipt r JOIN loan l ON l.id=r.loan_id JOIN customer c ON c.id=l.customer_id
          LEFT JOIN slf_bank_account sa ON sa.id=r.slf_bank_account_id
          LEFT JOIN employee e ON e.id=r.received_by
@@ -47,12 +53,13 @@ export async function GET(req) {
 
     const legs = await q(
       `SELECT dl.id, dl.kind, dl.amount_paise, dl.utr, d.created_at,
-              l.loan_no, c.full_name AS customer, sa.nickname AS from_account,
-              e.full_name AS by_name
+              l.loan_no, l.principal_paise, c.full_name AS customer, c.cust_no, sa.nickname AS from_account,
+              e.full_name AS by_name, s.code AS scheme_code
          FROM disbursement_leg dl
          JOIN disbursement d ON d.id=dl.disbursement_id
          JOIN loan l ON l.id=d.loan_id
          JOIN customer c ON c.id=l.customer_id
+         JOIN scheme_version sv ON sv.id=l.scheme_version_id JOIN scheme s ON s.id=sv.scheme_id
          LEFT JOIN slf_bank_account sa ON sa.id=d.from_slf_account_id
          LEFT JOIN employee e ON e.id=d.created_by
         WHERE l.branch_id=$1 AND d.created_at::date=$2 ORDER BY dl.id`, [branchId, date]);
@@ -102,6 +109,15 @@ export async function GET(req) {
         endReason: cyc.end_reason, endedBy: cyc.ended_by, endSigned: !!cyc.end_signed_at,
       } : null,
       moves, closingCashPaise: bal,
+      // E32 №8: the two blocks the owner asked for — loans given, money collected
+      disbursed: legs.map(x => ({ t: x.created_at, loanNo: x.loan_no, customer: x.customer, custNo: x.cust_no,
+        scheme: x.scheme_code, principalPaise: Number(x.principal_paise), mode: x.kind,
+        account: x.from_account, utr: x.utr, by: x.by_name, amountPaise: Number(x.amount_paise) })),
+      collected: receipts.map(r => ({ t: r.received_at, receiptNo: r.receipt_no, loanNo: r.loan_no,
+        customer: r.customer, custNo: r.cust_no, mode: r.mode, account: r.slf_account, utr: r.utr, by: r.by_name,
+        chargesPaise: Number(r.charges_paise), penalPaise: Number(r.penal_paise),
+        interestPaise: Number(r.interest_paise), principalPaise: Number(r.principal_paise),
+        amountPaise: Number(r.amount_paise), closes: !!r.closes_loan })),
       accounts: Object.entries(acct).map(([k, v]) => ({ account: k, ...v })) });
   } catch (e) {
     console.error("[reports/daybook] failed", e);

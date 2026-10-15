@@ -9,7 +9,7 @@ export default async function SettingsPage() {
   const actor = await currentActor();
   const TAB_FN = { Charges: "set_charges", Branches: "set_branches", Schemes: "set_schemes",
     Roles: "set_roles", Employees: "set_employees", Metals: "set_metals",
-    Items: "set_items", Banks: "set_banks" };
+    Items: "set_items", Banks: "set_banks", Limits: "set_limits" };
   const visibleTabs = actor
     ? Object.entries(TAB_FN).filter(([, fn]) => can(actor, fn, { need: "view" }).ok)
         .map(([t]) => t)

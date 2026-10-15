@@ -26,10 +26,12 @@ export default async function RatePage({ searchParams }) {
   const purities = await q(
     `SELECT karat, purity_pct FROM purity WHERE metal_id=$1 AND active ORDER BY purity_pct DESC`, [mid]);
   const history = await q(
-    `SELECT dr.rate_date, dr.base_paise, dr.funding_paise, dr.jump_pct, dr.jump_confirmed,
+    `SELECT dr.id, dr.rate_date, dr.base_paise, dr.funding_paise, dr.jump_pct, dr.jump_confirmed,
+            to_char(dr.published_at AT TIME ZONE 'Asia/Kolkata', 'HH24:MI') AS at_time,
+            row_number() OVER (PARTITION BY dr.rate_date ORDER BY dr.published_at DESC) > 1 AS superseded,
             e.full_name AS setter
        FROM daily_rate dr JOIN employee e ON e.id = dr.maker_id
-      WHERE dr.metal_id = $1 ORDER BY dr.rate_date DESC LIMIT 12`, [mid]);
+      WHERE dr.metal_id = $1 ORDER BY dr.rate_date DESC, dr.published_at DESC LIMIT 12`, [mid]);
   const warnPct = Number((await one(`SELECT value FROM app_setting WHERE key='rate_jump_warn_pct'`))?.value ?? 5);
 
   return (
@@ -45,7 +47,7 @@ export default async function RatePage({ searchParams }) {
           rateDate: inForce.rate_date, setter: setter?.full_name || "—" } : null}
         label={rateLabel(inForce?.rate_date ?? null, today)}
         purities={purities.map(p => ({ karat: p.karat, pct: Number(p.purity_pct) }))}
-        history={history.map(h => ({ ...h, base_paise: Number(h.base_paise),
+        history={history.map(h => ({ ...h, id: Number(h.id), base_paise: Number(h.base_paise),
           funding_paise: Number(h.funding_paise ?? h.base_paise),
           jump_pct: h.jump_pct === null ? null : Number(h.jump_pct) }))}
         warnPct={warnPct} />

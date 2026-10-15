@@ -38,6 +38,11 @@ export async function POST(req, { params }) {
 
   // ————————————————————————— cancel —————————————————————————
   if (action === "cancel") {
+    // E28 (14 Oct 2026): cancel had NO permission check — any signed-in user
+    // at the branch (reports-only, vault-only…) could kill a file. The wizard
+    // only offers Cancel to appraise=full, so the server now demands exactly that.
+    if (!can(actor, "appraise", { need: "full" }).ok)
+      return NextResponse.json({ ok: false, reason: "You may not cancel applications — ask for the Appraise permission" }, { status: 403 });
     if (!["draft", "appraised", "pending_ho", "approved"].includes(app.status))
       return NextResponse.json({ ok: false, reason: "Nothing to cancel" }, { status: 409 });
     if (!body.narration || body.narration.trim().length < 5)
@@ -48,9 +53,14 @@ export async function POST(req, { params }) {
         [id, body.reason || "not stated", body.narration.trim(), body.goldReturnPhotoId || null, actor.employeeId]);
       await cl.query(`UPDATE loan_application SET status='cancelled', updated_at=now(), updated_by=$2 WHERE id=$1`,
         [id, actor.employeeId]);
-      await cl.query(`UPDATE ho_approval SET status='rejected', decided_by=$2, decided_at=now(),
+      // E28: this used to mark the HO row 'rejected' with decided_by = the
+      // canceller — but the person cancelling is usually the one who RECOMMENDED
+      // it, and ho_approval_check forbids decided_by = recommended_by, so the
+      // cancel crashed with a 500. A branch cancel is a withdrawal, not an HO
+      // decision: same shape as the withdraw action below.
+      await cl.query(`UPDATE ho_approval SET status='withdrawn', decided_at=now(),
                         reject_reason='application cancelled at branch'
-                      WHERE application_id=$1 AND status='waiting'`, [id, actor.employeeId]);
+                      WHERE application_id=$1 AND status='waiting'`, [id]);
       await cl.query(`INSERT INTO loan_state_history (application_id, from_state, to_state, by_employee, note)
                       VALUES ($1,$2,'cancelled',$3,$4)`, [id, app.status, actor.employeeId, body.narration.trim()]);
       await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
@@ -213,21 +223,51 @@ export async function POST(req, { params }) {
       minPaise: Number(app.doc_charge_min_paise || 0), maxPaise: Number(app.doc_charge_max_paise || 0),
       gstPct: ct ? Number(ct.gst_pct) : 18 });
 
-    // verify every named account really belongs to this customer and is verified
+    // every named account must belong to this customer. E29 (owner ruling,
+    // 14 Oct 2026): it need not be VERIFIED any more — but then the disburser
+    // must sign a confirmation (the pop-up), and the database records who.
+    // "Verified" has one meaning, the database's: verified_at is set.
     const legs = [];
     for (const l of body.bankLegs || []) {
       const acc = await one(
-        `SELECT id, verified_at, cheque_file_id FROM customer_bank_account WHERE id=$1 AND customer_id=$2`,
+        `SELECT id, verified_at, bank, account_no, ifsc, holder_name
+           FROM customer_bank_account WHERE id=$1 AND customer_id=$2`,
         [l.accountId, app.customer_id]);
       if (!acc) return NextResponse.json({ ok: false, reason: "That bank account is not on this customer's file" }, { status: 400 });
       legs.push({ accountId: acc.id, amountPaise: Number(l.amountPaise),
-        verified: !!(acc.verified_at || acc.cheque_file_id) });
+        verified: !!acc.verified_at, acc });
     }
     // R-D2 — the customer receives the full sanctioned amount; the charge is
     // raised on the loan below and collected at the first repayment.
+    const capRow = await one(`SELECT value FROM app_setting WHERE key='cash_disburse_below_paise'`);
     const plan = disbursementPlan({ principalPaise: principal,
-      cashPaise: Number(body.cashPaise || 0), bankLegs: legs });
+      cashPaise: Number(body.cashPaise || 0), bankLegs: legs,
+      cashCapPaise: Number(capRow?.value ?? 2000000) });          // E32 №6
     if (!plan.ok) return NextResponse.json({ ok: false, reason: plan.problems[0], problems: plan.problems }, { status: 400 });
+
+    // E29: unverified legs need the signed confirmation. Without it, hand the
+    // screen everything the pop-up must show — the account IN FULL, and any
+    // number change in the last 30 days (who, when, what it was).
+    const unverified = legs.filter(l => !l.verified);
+    if (unverified.length && body.unverifiedAck !== true) {
+      const accounts = [];
+      for (const l of unverified) {
+        const ch = await one(
+          `SELECT to_char(a.at AT TIME ZONE 'Asia/Kolkata', 'DD-MM-YYYY') AS on_date,
+                  e.full_name AS by_name, a.before->>'accountNo' AS was
+             FROM audit_log a LEFT JOIN employee e ON e.id = a.employee_id
+            WHERE a.entity_table = 'customer_bank_account' AND a.entity_id = $1
+              AND a.action IN ('edit', 'edit_full')
+              AND (a.after->>'verificationCleared')::boolean IS TRUE
+              AND a.at > now() - interval '30 days'
+            ORDER BY a.id DESC LIMIT 1`, [l.accountId]);
+        accounts.push({ id: Number(l.accountId), bank: l.acc.bank, accountNo: l.acc.account_no,
+          ifsc: l.acc.ifsc, holderName: l.acc.holder_name, amountPaise: l.amountPaise,
+          changedRecently: ch ? { on: ch.on_date, by: ch.by_name || "—", from: ch.was } : null });
+      }
+      return NextResponse.json({ ok: false, needsUnverifiedConfirm: true, accounts,
+        reason: "Paying an unverified bank account needs your confirmation" }, { status: 409 });
+    }
 
     const out = await tx(async (cl) => {
       const loanNo = await issueNumber(cl, { entityId: app.entity_id, branchId: app.branch_id,
@@ -253,9 +293,11 @@ export async function POST(req, { params }) {
         await cl.query(`INSERT INTO disbursement_leg (disbursement_id, kind, amount_paise) VALUES ($1,'cash',$2)`,
           [d.id, Number(body.cashPaise)]);
       for (const l of legs)
-        await cl.query(`INSERT INTO disbursement_leg (disbursement_id, kind, customer_bank_account_id, amount_paise, utr)
-                        VALUES ($1,'bank',$2,$3,$4)`,
-          [d.id, l.accountId, l.amountPaise, body.utr || null]);
+        // E29: an unverified leg carries the confirmer (positional param at the END)
+        await cl.query(`INSERT INTO disbursement_leg (disbursement_id, kind, customer_bank_account_id, amount_paise, utr,
+                          unverified_ack_by)
+                        VALUES ($1,'bank',$2,$3,$4,$5)`,
+          [d.id, l.accountId, l.amountPaise, body.utr || null, l.verified ? null : actor.employeeId]);
 
       if (charge.totalPaise > 0) {
         // ct already fetched above — same row prices and ledgers the charge
@@ -272,7 +314,11 @@ export async function POST(req, { params }) {
         [id, loan.id, actor.employeeId, `disbursed ${loanNo}`]);
       await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
         table: "loan", entityId: Number(loan.id), action: "loan_activated",
-        after: { loanNo, principal, cash: body.cashPaise, legs: legs.length } });
+        after: { loanNo, principal, cash: body.cashPaise, legs: legs.length,
+          // E29: unverified payouts are named in the audit, not just the leg row
+          unverifiedLegs: unverified.map(l => ({ accountId: Number(l.accountId),
+            accountNo: l.acc.account_no, amountPaise: l.amountPaise })),
+          unverifiedConfirmedBy: unverified.length ? actor.employeeId : null } });
       return { loanId: Number(loan.id), loanNo, packetNo };
     }, { entityIds: actor.entityIds });
 

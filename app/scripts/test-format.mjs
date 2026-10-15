@@ -1,4 +1,4 @@
-import { formatAadhaar, cleanAadhaar, maskAadhaar, formatPan, formatMobile, formatIfsc, titleCaseName } from "../src/lib/format.js";
+import { formatAadhaar, cleanAadhaar, maskAadhaar, formatPan, formatMobile, formatIfsc, titleCaseName, dmy } from "../src/lib/format.js";
 let pass=0, fail=0;
 const eq=(n,g,w)=>{const ok=g===w;ok?(pass++,console.log("  ✓",n)):
   (fail++,console.log("  ✗",n,"\n      got ",JSON.stringify(g),"\n      want",JSON.stringify(w)));};
@@ -45,6 +45,12 @@ console.log("\n§6 A customer's name stores the same way however it was typed");
   eq("empty stays empty", titleCaseName(""), "");
   eq("nothing at all stays empty", titleCaseName(null), "");
 }
+
+console.log("\n§9 dmy");
+eq("ISO day string", dmy("2026-10-14"), "14-10-2026");
+eq("ISO timestamp string keeps its day", dmy("2026-10-14T12:00:00.000Z"), "14-10-2026");
+eq("a Date (timestamp from the database) → its IST day, never a 60-character string", dmy(new Date("2026-10-14T19:30:00.000Z")), "15-10-2026");
+eq("empty → dash", dmy(null), "—");
 
 console.log(`\n${pass} passed · ${fail} failed`);
 process.exit(fail ? 1 : 0);

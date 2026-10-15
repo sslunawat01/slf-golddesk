@@ -54,3 +54,60 @@ input.i[type="date"]::-webkit-calendar-picker-indicator:hover{opacity:1}
 .brand b{color:var(--brass)}
 .sub{color:#5f8f7b;font-size:12.5px;font-weight:600;text-align:center;margin-top:4px}
 .stack>*+*{margin-top:14px}
+
+/* ── E33 · Follow-ups (tab, loan section, panels) — works at 768 / 1024 / 1440 ── */
+.fu-pill{display:inline-flex;align-items:center;gap:6px;border:1px solid #cfc9ba;background:#fff;border-radius:99px;
+  padding:8px 13px;font-size:13.5px;font-weight:800;color:#5f5b4f;font-family:inherit;min-height:40px;cursor:pointer;line-height:1.2}
+.fu-pill.on{background:var(--vault);color:#fff;border-color:var(--vault)}
+.fu-pill.small{min-height:32px;padding:4px 10px;font-size:12px;font-weight:700}
+.fu-pill:disabled{opacity:.45;cursor:not-allowed}
+.fu-tl{position:relative;padding-left:26px}
+.fu-tl:before{content:"";position:absolute;left:7px;top:0;bottom:0;width:2px;background:var(--line)}
+.fu-ev{position:relative;padding:10px 0;border-top:1px dashed #e8e4d8}
+.fu-ev:first-child{border-top:0}
+.fu-dot{position:absolute;left:-26px;top:14px;width:16px;height:16px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 1px var(--line)}
+/* the tab's list rows: a grid on wide screens, a stacked card below 1024px */
+.fu-row{display:grid;grid-template-columns:112px minmax(200px,1.5fr) minmax(150px,1fr) minmax(140px,1fr) 110px 100px auto;
+  gap:12px;align-items:center;padding:12px 16px;border-top:1px solid #eeeae0}
+.fu-row .fu-cell-num{text-align:right}
+.fu-head{background:#faf9f4;font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--mut);padding:8px 16px}
+.fu-group{padding:9px 16px;font-size:12px;font-weight:900;letter-spacing:.06em;text-transform:uppercase;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.fu-actions{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.fu-actions .btn{padding:8px 12px;font-size:13px;border-radius:9px;min-height:36px;text-decoration:none;display:inline-flex;align-items:center;white-space:nowrap}
+/* the compact card layout: below 1024px, and on a wide screen while the side panel squeezes the list */
+@media (max-width:1023px){
+  .fu-row{grid-template-columns:1fr 1fr;gap:6px 12px}
+  .fu-row>*{min-width:0}
+  .fu-row .fu-cell-due{grid-column:1/2}
+  .fu-row .fu-cell-assigned{grid-column:2/3;text-align:right}
+  .fu-row .fu-cell-cust{grid-column:1/-1}
+  .fu-row .fu-cell-type,.fu-row .fu-cell-last{grid-column:span 1}
+  .fu-row .fu-cell-num{grid-column:1/2;text-align:left}
+  .fu-row .fu-cell-num:before{content:"Due today ";color:var(--mut);font-weight:700;font-size:12px}
+  .fu-actions{grid-column:1/-1;justify-content:flex-start}
+  .fu-head{display:none}
+}
+@media (min-width:1181px){
+  .fu-shell.with-panel .fu-row{grid-template-columns:1fr 1fr;gap:6px 12px}
+  .fu-shell.with-panel .fu-row>*{min-width:0}
+  .fu-shell.with-panel .fu-row .fu-cell-due{grid-column:1/2}
+  .fu-shell.with-panel .fu-row .fu-cell-assigned{grid-column:2/3;text-align:right}
+  .fu-shell.with-panel .fu-row .fu-cell-cust{grid-column:1/-1}
+  .fu-shell.with-panel .fu-row .fu-cell-type,.fu-shell.with-panel .fu-row .fu-cell-last{grid-column:span 1}
+  .fu-shell.with-panel .fu-row .fu-cell-num{grid-column:1/2;text-align:left}
+  .fu-shell.with-panel .fu-row .fu-cell-num:before{content:"Due today ";color:var(--mut);font-weight:700;font-size:12px}
+  .fu-shell.with-panel .fu-actions{grid-column:1/-1;justify-content:flex-start}
+  .fu-shell.with-panel .fu-head{display:none}
+}
+/* the side panel: 540px beside the list on wide screens, full width on a tablet */
+.fu-shell{display:flex;align-items:flex-start;gap:0}
+.fu-list{flex:1 1 560px;min-width:0}
+.fu-panel{position:sticky;top:70px;flex:0 0 540px;max-height:calc(100vh - 86px);overflow-y:auto;background:#fff;
+  border:1px solid var(--line);border-left:4px solid var(--brass);border-radius:16px;margin-left:16px;
+  box-shadow:0 12px 36px rgba(12,35,27,.12)}
+@media (max-width:1180px){
+  .fu-shell{display:block}
+  .fu-panel{position:fixed;inset:0;margin:0;border-radius:0;max-height:none;z-index:10020;border-left:0;flex:none}
+  .fu-list.dim{opacity:1}
+}
+@media (max-width:768px){.fu-row{padding:10px 12px}.fu-pill{font-size:13px;padding:7px 11px}}

@@ -38,7 +38,8 @@ export async function PATCH(req, { params }) {
       `UPDATE loan_application SET scheme_version_id=COALESCE($2,scheme_version_id),
          requested_paise=$3, purpose=COALESCE($4,purpose), borrower_present=$5,
          presence_photo_id=$6, coborrower_customer_id=$7, coborrower_photo_id=$8,
-         valuer1_id=$9, valuer2_id=$10, status=$11, updated_at=now(), updated_by=$12
+         valuer1_id=$9, valuer2_id=$10, status=$11, updated_at=now(), updated_by=$12,
+         remark=$13
        WHERE id=$1`,
       [id, body.schemeVersionId || null, body.requestedPaise ?? null, body.purpose || null,
        body.borrowerPresent ?? null,
@@ -49,7 +50,9 @@ export async function PATCH(req, { params }) {
        "coborrowerPhotoId" in body ? (body.coborrowerPhotoId ?? null) : app.coborrower_photo_id,
        body.valuer1Id ?? null, body.valuer2Id ?? null,
        creatorEditingApproved ? "appraised" : (body.items?.length ? "appraised" : app.status),
-       actor.employeeId]);
+       actor.employeeId,
+       // E32 №4: free-text remark on the file (appended at the END, positional)
+       "remark" in body ? (String(body.remark || "").trim().slice(0, 500) || null) : app.remark]);
 
     if (creatorEditingApproved)
       await cl.query(

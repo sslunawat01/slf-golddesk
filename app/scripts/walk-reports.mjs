@@ -19,8 +19,15 @@ async function login(username, branchHint) {
   if (j.next === "branch") {
     const r2 = await fetch(`${BASE}/api/auth/branch`, { method: "POST",
       headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ employeeId: j.employeeId, branchId: branchHint }) });
+      body: JSON.stringify({ ticket: j.ticket, branchId: branchHint }) });   // E28: ticket, never a bare id
     cookie = (r2.headers.get("set-cookie") || "").split(";")[0] || cookie;
+  } else if (branchHint && cookie) {
+    // a returning multi-branch user RESUMES his last branch — move him to the
+    // one this walk needs, through the session (the header-switch path)
+    const r3 = await fetch(`${BASE}/api/auth/branch`, { method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ branchId: branchHint }) });
+    cookie = (r3.headers.get("set-cookie") || "").split(";")[0] || cookie;
   }
   return cookie;
 }
@@ -49,6 +56,9 @@ if (duesB1?.ok && rowB1) {
   ok(rowB1.interestPaise === duesB1.running._paise.interestDue,
     `${b1.loan_no} interest ${rowB1.interestPaise} == dues API ${duesB1.running._paise.interestDue}`);
   ok(rowB1.penalPaise === duesB1.running._paise.penalDue, `${b1.loan_no} penal matches dues API`);
+  // E27b: principal must ALSO match the dues API — the ×100 hole never reopens
+  ok(rowB1.principalPaise === Math.round(duesB1.running.principal * 100),
+    `${b1.loan_no} principal ${rowB1.principalPaise} == dues API ${Math.round(duesB1.running.principal * 100)}`);
 } else ok(false, `${b1.loan_no} present in both report and dues API`);
 
 // —— repay register: every receipt's split must sum to its amount ——
@@ -73,6 +83,9 @@ ok(sum.rows.reduce((a, r) => a + r.disbursedPaise, 0) === Number(dSql.p),
   "summary disbursed ₹ == SQL");
 ok(sum.rows.reduce((a, r) => a + r.activeCount, 0) === totalActive.n,
   "summary active count == all active");
+// E27b: period-end book == the live engine book, branch by branch
+ok(sum.rows.every(r => r.osEndPaise === r.activePrincipalPaise),
+  "summary: O/s at period end == live Principal O/s (every branch)");
 
 // —— apphistory count vs SQL ——
 const ah = await get(boss, "/api/reports/apphistory?fy=2026-27&branch=all");

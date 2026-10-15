@@ -8,8 +8,9 @@ import EmployeesTab from "./EmployeesTab.js";
 import MetalsTab from "./MetalsTab.js";
 import ItemsTab from "./ItemsTab.js";
 import BanksTab from "./BanksTab.js";
+import LimitsTab from "./LimitsTab.js";
 
-const TABS = ["Charges", "Branches", "Schemes", "Roles", "Employees", "Metals", "Items", "Banks"];
+const TABS = ["Charges", "Branches", "Schemes", "Roles", "Employees", "Metals", "Items", "Banks", "Limits"];
 
 export default function SettingsClient({ visibleTabs = TABS }) {
   const shown = TABS.filter(t => visibleTabs.includes(t));
@@ -33,6 +34,7 @@ export default function SettingsClient({ visibleTabs = TABS }) {
       {tab === "Branches" && <BranchesTab />}
       {tab === "Schemes" && <SchemesTab />}
       {tab === "Roles" && <RolesTab />}
+      {tab === "Limits" && <LimitsTab />}
       {tab === "Employees" && <EmployeesTab />}
       {tab === "Metals" && <MetalsTab />}
       {tab === "Items" && <ItemsTab />}

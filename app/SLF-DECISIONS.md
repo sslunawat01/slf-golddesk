@@ -582,3 +582,580 @@ signed ₹1,78,900; the derived ledger balances ΣDr = ΣCr exactly. Battery
 "O/s Loans From" and "O/s Loans To": the oldest and newest disbursement
 dates among the branch's active loans (blank when a branch holds none).
 Verified against SQL min/max per branch, twice.
+
+---
+
+## E28 — "cannot select a role" + full code audit (owner report, 14 Oct 2026)
+
+**The reported bug.** EmployeesTab step 3 called the CURRIED helper
+`setW(obj)` — it builds a setter and throws it away, so a role click did
+nothing and Next never unlocked. Introduced by E14 №7 (28 Aug, single-pick
+role); the last employee anyone could create was on 27 Aug. One-line fix
+(setWiz). Walked end to end in a browser: role ticks, wizard completes,
+employee lands in the DB with exactly one role and the right branch, and
+signs in (scripts/walk-employee-create.mjs).
+
+**Audit.** Four independent reviewers (client state, API auth/branch walls,
+money units, schema-vs-code), every claim re-verified by Claude before any
+change. Fixed in this patch — all unambiguous bugs, no policy change:
+
+1. CRITICAL — /api/auth/branch minted a session for ANY employeeId in the
+   body: no password, no cookie. Proven locally: `{employeeId:1,branchId:1}`
+   returned an owner session that read the staff list. Now: the header
+   switch uses the live session (body id ignored, old session revoked); the
+   login picker needs a 5-minute HMAC ticket that /api/auth/login issues only
+   after the password check (src/lib/loginticket.js, key derived from
+   DATABASE_URL, fails closed). New suite scripts/test-loginticket.mjs (21).
+2. CRITICAL — W7 CLOSED. Forgot-password returned the reset code to the
+   browser for ANY username. The owner's recorded condition ("only while the
+   owner is the sole user") had passed — 11 staff accounts exist. The code is
+   never returned now; self-service refuses up front (no username probing)
+   until SMS is genuinely wired (SMS_WIRED flag). Administrators reset via
+   Settings → Employees; the owner's own recovery is
+   `node scripts/set-password.mjs slunawat` on the server.
+3. HIGH — the full customer edit changed a verified bank account's number
+   while KEEPING verified_at; the payout trigger checks only verified_at, so
+   payouts could be redirected, unaudited. Now clears verification exactly
+   like the bank-only route and audits before/after numbers.
+4. HIGH — Cancel had no permission check; now appraise=full (the only people
+   the wizard ever offered it to). Cancelling an HO-pending file 500'd
+   (ho_approval_check decided_by ≠ recommended_by) — now a withdrawal.
+5. HIGH — HO could approve a CANCELLED file back to approved (rows 2-4 were
+   live). Approvals now guarded (status='waiting' AND app 'pending_ho', row
+   counts checked → 409); both day-end paths close HO rows when cancelling;
+   scripts/datafix-20261014.mjs withdraws the stale rows (idempotent).
+   Missing decision → 400, not a 500.
+6. E27b REBUILT (the Sep tarball was lost with the workspace and never
+   deployed): reports' state.principal ×100 (100× principal / total due)
+   fixed; Branch Summary "O/s at Period Start/End ₹" by engine replay as of
+   each date; the misread date columns removed.
+7. Customer 360 replayed charges with no date (sorted after all receipts) —
+   10 of 44 live loans showed wrong principal/charges. Release SLA read
+   holiday.day (column is on_date; error swallowed) — holidays never skipped.
+   Add-charge label compared to 'percent' (enum says pct_of_sanction).
+8. Screens: cheque photo sent as an object (lost); "Close loan" flag stuck
+   after typing a smaller amount (part payment priced as a closure); Charges
+   tab vanished on any refusal; unticking the starred branch left a dangling
+   primary (refused at the last step).
+
+Walked twice at both layers (scripts/walk-e28.mjs — 28 assertions against
+the DATABASE; scripts/walk-e28-ui.mjs — picker login, header switch, collect
+labels, forgot page), plus every earlier walk. Battery 20/20.
+
+**OPEN — verified findings NOT fixed here (need an owner ruling or their
+own build).** Ranked by risk:
+- O-A Rate correction same day → raw 500 (`DELETE FROM daily_rate` hits the
+  append-only trigger). Needs a migration; and the rate is single-signed
+  (maker = checker) though the constitution says maker ≠ checker.
+- O-B Receipts take no row lock: a double-click can post two receipts /
+  two closures; UTR not unique. Needs SELECT … FOR UPDATE + a unique index.
+- O-C Search shows loans of ALL branches to anyone signed in. Ruling: should
+  search be branch-walled like reports?
+- O-D Self-escalation: set_employees:edit can grant itself any role/branch;
+  set_roles:edit can raise its own sanction limit. Ruling: who may grant?
+- O-E Admin password reset sets force_change=FALSE (owner decision 12 Aug)
+  — the admin keeps knowing the password. Recommend TRUE.
+- O-F Engine 1.1.0 re-prices receipts written under 1.0.0 on replay (loan 1:
+  receipt says principal ₹99,230, replay ₹99,280; overdue list disagrees
+  with collect). Needs a ruling: replay stored splits for old receipts?
+- O-G Cash cap allows exactly ₹2,00,000 (`>`); Sec 269ST bars "₹2 lakh or
+  more". CLAUDE.md says "≤". Ruling.
+- O-H Scheme not validated server-side on the pledge (any version id, any
+  branch allocation); valuers / SLF account ids unchecked; pledge PATCH
+  writes no audit.
+- O-I Edit-customer screen blocks saves for pre-E21 customers (runs the
+  create-time validator; existing scans not counted); Aadhaar/PAN scans
+  added in edit mode are dropped.
+- O-J Custody: release allowed from at_counter with no vault movement
+  (01A6702306); frozen packets have no HO clear action (PKT-01-25-0003);
+  B3 Nashik has no safe but holds approved APP-03-26-0001.
+- O-K 10 non-cash receipts (RCPT-01-26-00842…00854) have no SLF account —
+  the NOT VALID constraint can never be validated until backfilled.
+- O-L Smaller: overdue loanDay off by one vs R-L; loan-profile monthly
+  estimate divides by loan age; principal "outstanding" on the 360/search is
+  the sanctioned amount; employee wizard demands a branch though the owner
+  ruled posting optional; HO branch can open day cycles; pledge wizard can
+  freeze on a non-JSON error; search can show a stale query's results;
+  photo upload can overwrite fields typed meanwhile; app-history filter
+  offers states never written; seed loans carry 100× weights (delete list).
+
+---
+
+## E29 — payouts to UNVERIFIED bank accounts (owner ruling, 14 Oct 2026)
+
+**OWNER OVERRIDE of R19 / C10, recorded with Claude's warning.** R19 refused
+any payout to an account without verified_at. Verification is the only guard
+between a mistyped or swapped account number and money sent to a stranger —
+a wrong bank transfer is usually unrecoverable — and E28's bank-swap fix
+relied on it. The owner ruled: allow it, behind a pop-up.
+
+What was built (rule kept in BOTH layers, reshaped from "refuse" to
+"refuse unless signed"):
+- Migration 030: disbursement_leg.unverified_ack_by; trigger
+  fn_leg_requires_verified_bank now refuses an unverified leg with no
+  confirmer, and refuses a confirmer who CREATED the loan file (owner, same
+  ruling: "anyone with permission but not the user who created the loan").
+- Disburse API: an unverified leg needs body.unverifiedAck; without it,
+  409 with everything the pop-up shows — the account IN FULL (number, IFSC,
+  holder, amount) and any number change in the last 30 days (who, when, the
+  old last-4; 30 days is Claude's default). Audit names the unverified
+  accounts and the confirmer. The creator still never disburses (E17b).
+- Wizard: unverified accounts selectable (amber tag); Pay → pop-up.
+  E29b (owner, same day): the pop-up offers, per account, VERIFY BY DOCUMENT
+  (cheque/passbook photo → the same proof + verify actions as the 360,
+  audited the same; needs edit-customer rights, as the 360 does) or VERIFY
+  BY BANK API — shown but switched off: no penny-drop provider is connected
+  (O11). When every flagged account is verified the button becomes "All
+  accounts verified — pay now" and nobody signs for risk; otherwise "Pay
+  without verifying — I have checked the account" signs it.
+- ONE meaning of "verified" everywhere, the database's: verified_at is set.
+  The screens used to treat a cheque photo alone as payable while the
+  trigger refused it — cheque-only payouts crashed at the last step.
+- New customers may be SAVED with unverified accounts (owner); the creation
+  validator no longer demands verify/cheque (IFSC and holder still checked).
+- Loan Details marks each payout "unverified — confirmed by <name>".
+
+Proven: scripts/walk-e29.mjs (API + DATABASE: verified pays straight;
+unverified → 409 and nothing written; confirmed → signed leg + audit;
+dossier; the trigger alone refuses no-confirmer and creator-confirmer; the
+creator cannot disburse; new customer saves with an unverified account) and
+scripts/walk-e29-ui.mjs (browser: pop-up shows the account in full and the
+recent-change warning; Go back pays nothing; Pay without verifying signs it;
+verify-by-document verifies in the DB, joins the proof gallery, then pays as
+verified). Both twice; all earlier walks re-run; battery 20/20 (old-rule
+assertions in test-valuation / test-customer rewritten as new-rule ones).
+
+Ledger: O11 penny-drop provider now also lights up "Verify by bank API".
+
+## E30 — Maraekat test-data import, B3 Nashik (owner, 15 Oct 2026)
+
+Owner: "upload this data… fill what you do not find judicially… testing
+data". Rulings: ANONYMISE names and mobiles · FULL REPLAY through the engine ·
+schemes INFERRED from the data where he has none · ReEntry = RENEWAL.
+Mid-build he created IND04, IND12, VIN12, GL2070 v7, GL2080 v3 for B3 —
+those win over anything inferred.
+
+Pieces (all in scripts/, none touch src/):
+- lib-maraekat.mjs — the pure planner; test-maraekat.mjs (51 tests).
+- import-maraekat.mjs <json> [--commit] — one transaction; without --commit
+  it is a full rehearsal that rolls back. Self-check before commit: every
+  imported loan is re-read from the database and replayed through
+  loanstate.replayLoan; any difference from the plan → rollback.
+- purge-maraekat-import.mjs [--commit] — removes every test customer and all
+  that hangs off them (incl. anything staff added later), the MRK- schemes,
+  Safe M, the MRK SLF accounts, the placeholder photo rows. Lifts the
+  append-only guards inside its own transaction only; checks they are back.
+  Audit rows stay; the two import employees are renamed, not deleted.
+- walk-maraekat.mjs (API) and walk-maraekat-ui.mjs (browser).
+- import-data/maraekat-b3.json — anonymised (invented names, 60000xxxxx
+  mobiles; staff e-mails and party names dropped). Not committed to git.
+
+How each gap was filled ("judicially"):
+- Scheme: the owner's published version of the same code, offered at B3 and
+  in force on the loan date (highest version if several); else MRK-<code>
+  inferred: Maraekat divides by a 360-day year (its 18% shows as 18.3% over
+  365 at every age); slab edges from median implied rates by loan age.
+  Inferred schemes are inactive and offered at no branch.
+- Principal → ₹100 steps (R-J), largest payout leg absorbs it (1 loan).
+- Receipts: closing receipt = GoldDesk's exact closing settlement that day
+  (difference reported); several closing-day receipts keep all but the last
+  as paid; under ₹100 → carried into the loan's next receipt; not in ₹10
+  steps → rounded down, remainder carried; leftover carry reported dropped.
+  Paymode CASH→cash, *UPI→upi, else bank; UTR "MRK-<receipt no>".
+- Maraekat "Conso. Charges" → a Misc charge raised that day (settled first, R-G).
+- Ornaments: one item per loan, 22K, weight back-computed from the larger of
+  eligible and loan amount at an approximate monthly 24K rate (Oct 2024 →
+  Sep 2025 market levels, then GoldDesk's own ₹12,300).
+- Customers keep their Maraekat number unless it is taken (5 renumbered);
+  customer_no_seq bumped past the highest; KYC date = first loan; address,
+  nominee, bank accounts are plain "not imported" placeholders (bank ones
+  marked verified-manual so historic payouts satisfy the E29 trigger).
+- Staff: two INACTIVE, non-login employees (maker; checker approves) — the
+  maker ≠ checker trigger holds for every imported loan.
+- Custody: new "Safe M — Maraekat import" at B3; running loans in_safe;
+  closed ones released (placeholder handover photo); renewed ones out.
+- ReEntry: closing through "ReEntry Bank" → closed_by_renewal; renewal row
+  1:1 with a new loan of the same customer and day funded by ReEntry
+  (closest amounts first — the table is 1:1, Maraekat is many-to-many, the
+  rest are reported). ReEntry in/out runs through "MRK · ReEntry adjustment".
+- Refuses to run until the day after the export's last date (no imported
+  cash in an open day); refuses a second run until purged. Owner, 15 Oct:
+  import TODAY — the 3 receipts dated 15 Oct are left out of the json
+  (data ends 14 Oct), which is exactly the set rehearsed locally.
+
+Local result (14 Oct prod dump + owner's 15 Oct schemes): 576 customers ·
+4,773 loans (1,074 running, 3,104 released, 595 renewed) · 145 cancelled
+applications · 8,648 receipts · 499 renewal links · self-check identical ·
+walk-maraekat + walk-maraekat-ui twice · purge restored every table count ·
+re-import identical · battery 21/21 · E28/E29/reports/employee walks green.
+
+Findings for the register:
+- O-M Search matches the name as typed in full: "Nitin Jadhav" does not find
+  "Nitin Dilip Jadhav". Product behaviour, not the import — ruling wanted.
+- O-N Prod GL2070 v6 and GL2080 v2 have effective_to (2000-10-14) BEFORE
+  effective_from (2026-08-28): never in force. The import ignores such rows;
+  the owner should close them properly.
+
+## E31 — penal clock = interest-unpaid period; old receipts replay under their own engine (owner, 15 Oct 2026)
+
+Owner rulings (after seeing 03A5600457 carry ₹650 penal on the loan-age rule):
+1. Penal only when the INTEREST-UNPAID period exceeds tenure + grace. A PART
+   payment of interest restarts that period.
+2. Once charged, penal counts from day tenure+1 of that period (grace days
+   are charged, not skipped) — same counting as before.
+3. Do NOT re-import the Maraekat data.
+
+Engine 1.2.0 (R-I amended in the constitution header):
+- New state field `interestClock` = first day interest has been unpaid:
+  disbursement at open; the day after ANY payment that reaches interest
+  (R-G means penal is always cleared before interest, so a payment that
+  touches interest has also settled all penal). Kept under every rule.
+- dues()/applyPayment() take `penalRule`: "unpaid_interest" (today) or
+  "loan_age" (engine ≤ 1.1.x). Penal start = later of (clock + tenure) and
+  the penal anchor. dues().penal now also reports rule, clockFrom, unpaidDays.
+- Because receipts are facts, a receipt stored under 1.1.x replays under
+  "loan_age": loanstate.penalRuleFor(engine_version) tags every payment event;
+  every replay caller now SELECTs engine_version (dues route, loan page,
+  customer page, loandetails, reports.js ×2, import self-check, verify-pune).
+  This closes the open ruling "engine re-pricing of old receipts": NEVER —
+  each receipt replays under the engine that priced it; today's position is
+  always priced by today's rule.
+- Collect screen: the penal row now says "interest unpaid since <date>
+  (N days, past tenure + grace)".
+
+Proof:
+- test-engine §4b rewritten (day-200 interest payment → day-210 penal ₹0 under
+  today's rule, ₹60 under loan_age) + new §4c (part payment restarts the clock;
+  grace window; day tenure+1 counting; a payment swallowed by penal does not
+  restart; never-paid loans unchanged → canonical ₹0/₹50/₹360 stand). 70/70.
+- test-loanstate §9: penalRuleFor; a 1.1.0 penal receipt replays cleanly in a
+  mixed-version history. 55/55. Battery 21/21.
+- NEW scripts/verify-replay.mjs — replays every loan in the database and
+  compares each stored receipt_appropriation split with the engine's; run
+  after every engine change. Local DB mirrored production (import re-run
+  under engine 1.1.0 first): 4,832 loans · 8,671 receipts (8,654 under
+  1.1.0, 12 under 1.0.0, 5 under 1.2.0). Problem list IDENTICAL before and
+  after the engine change — the change introduced none.
+- Effect on the imported book today: penal due ₹2,270 on 5 running loans
+  (all IND04, interest never paid), was ₹34,470 on 94. 03A5600457 → ₹0
+  (interest unpaid 259 days < 407).
+- walk-maraekat (expected figures now computed by direct replay, not the
+  import report) + walk-maraekat-ui ×2; e28, e29, e29-ui, reports, reports-ui,
+  silver green. walk-reports-ui now waits for the figures (Branch Summary
+  replays 1,000+ loans twice ≈ 3 s).
+
+Pre-existing blemishes the audit surfaced (not caused by E31, all on junk
+test loans; a purge + re-import would clear the 03A ones, owner declined):
+- 03A4500273, 03A4500316, 03A5600075, 03A5600920, 03A6700814 (all closed):
+  Maraekat "Conso. Charges" on the SECOND receipt of a day were raised
+  mid-day by the planner, while buildEvents raises a day's charges first —
+  stored split says interest, replay says charge (totals and final state
+  identical). Planner fixed (charges of a day raised before its first
+  receipt) and the import self-check now compares every stored split, so it
+  cannot recur.
+- 01A6543110, 01A6598812, 01A6702204, 01A6702306, 01L252600002/3: receipts
+  stored under engine 1.0.0 (pre R-L day counting) or seeded by SQL; two
+  show "closed" with a closing receipt the engine does not accept. Pre-import
+  test loans from July/Aug.
+- walk-rates-ui's wizard half depends on application 76 having a silver
+  item; on the 14 Oct dump it is cancelled and empty (fixture rot since 29
+  Aug). Rate-board half passes. Needs a rebuilt fixture — O-P.
+
+Open: O-O — the overdue worklist's "Past tenure" bucket and the Day-N age
+chip still go by LOAN AGE. Should "overdue" follow the new penal clock
+(interest unpaid > tenure) instead? Ruling wanted.
+
+## E32 — the 15 Oct punch list (owner, 15 Oct 2026)
+
+Rulings taken before building: cash limits MAY exceed the legal figures
+("owner decides" — recorded as an override, warned in red on the screen and
+in every audit row); blacklisting is its own ROLE PERMISSION; market value is
+hidden only in the pledge wizard; the camera problem was seen on phone AND
+laptop.
+
+Migrations: 031 (structure) + 032 (seeds — the enum values 031 adds cannot
+be referenced in the same transaction).
+
+1. Camera: both modals now render through a portal on <body> (zIndex 10050+),
+   the preview is capped at 60vh so "Take photo" is always on screen, the
+   dialog scrolls, the compact buttons read "📸 Take photo" / "📁 Choose file"
+   (a bare icon was invisible on laptops), and a device without a camera or a
+   refused permission falls straight through to the file chooser.
+2. Scheme first: the chooser sits at the top of step 1 (data-scheme-first);
+   step 2 shows it read-only. The grid and step 2/3 show FUNDING value only;
+   market value is still computed and stored (appraisal note, reports, LTV).
+3. Weights: gross, stone and net are all typed; whichever was typed last wins
+   (WizardClient.weights): gross→net=gross−stone · stone→net · net→stone=
+   gross−net (gross known) else gross=net+stone. Floors at 0.000.
+4. Remark on the file: loan_application.remark (≤500 chars), typed in step 2,
+   shown in step 3, on the loan page (amber box) and in Loan Details.
+5. Customer remarks: customer.warning_remark / blacklist_remark (+ who, when).
+   is_blacklisted (generated) now also fires on a blacklist remark, so the
+   lending block (mayLend → /api/applications refuses), the search chip and
+   the 360 banner follow with no further code. RemarkPopup (portal) greets the
+   operator on: search results (once per customer per search session — not
+   every keystroke), the customer 360, the collect screen, the pledge wizard.
+   RemarksClient card on the 360: warning = edit-customer right; blacklist =
+   the new `blacklist` permission (032 seeds it to roles with edit_customer
+   FULL and to roles with the settings umbrella). Audit actions
+   customer_warning_set / customer_blacklisted / customer_unblacklisted.
+6. Settings · Limits (new tab, permission set_limits, seeded from 'settings'):
+   cash_disburse_below_paise (payout per loan must be BELOW; law ₹20,000
+   269SS) and cash_receipt_day_max_paise (per customer per day, AT MOST; law
+   ₹2,00,000 269ST). Read by valuation.disbursementPlan (cashCapPaise) via
+   the action route and the wizard, by loanstate.cashCapCheck (capPaise) via
+   the receipt route, and by the DATABASE: the fixed CHECK on cash legs is
+   replaced by trigger fn_leg_cash_cap reading the setting. Messages name the
+   law at the legal figure and "Settings · Limits" otherwise. Audit
+   limit_changed carries aboveLegal.
+7. Loan page: "Loan amount" tile (sanctioned principal) before "Principal
+   outstanding".
+8/9. Day Book: two new blocks above the movement table — Loans disbursed
+   (loan, customer, scheme, loan amount, mode, account, paid out) and
+   Payments collected (receipt, loan, customer, mode, account, CHARGES /
+   PENAL / INTEREST / PRINCIPAL / total, settles, by) from the stored
+   receipt_appropriation split; totals per column. CSV unchanged (movements).
+10. Age: customer.ageOn/underAge; the form shows "· age N" beside the date of
+   birth and a red chip under 18; validateNewCustomer and the full-edit route
+   refuse under-18 (corporate exempt — an incorporation date is not an age);
+   the 360 shows the age.
+11. Photos: KYC document scans now show as thumbnails (full size on click) on
+   the 360; the loan page shows the sealed-packet and gold-handover photos
+   beside the ornament photos. Ornament, presence and co-borrower photos were
+   already viewable.
+
+Proof: test-customer 82 (age), test-valuation 72 and test-loanstate 60 (caps
+as parameters); battery 21/21; verify-replay unchanged (19 pre-existing);
+walk-e32 (API+DB: remarks + permission + lending block + search + audit;
+limits API/permission/validation/override audit/DB trigger/receipt cap;
+remark PATCH; loan page tile + seal photo; Loan Details remark; day book
+blocks and split; under-18 refusal; Settings tab; roles API) and walk-e32-ui
+(pop-up + Noted; scheme-first; weights; no Valuation; phone-upright camera
+dialog with a fake 9:16 stream → Take photo on screen → editor; age chip;
+Limits tab) — both twice; every earlier walk re-run green.
+
+Open: O-Q — the Roles tab shows "Blacklist / un-blacklist a customer" and
+"Settings · Limits" automatically; the owner should tick them deliberately
+(032 seeded sensible defaults). O-R — the wizard's "Processing fee" line and
+the Appraisal Note print still show market value by design (ruling: wizard
+only).
+
+## E33 — Follow-ups: loan section, dedicated tab, Home card, register (owner GO on the canvas, 15 Oct 2026)
+
+UX was designed and approved on the Claude Design canvas first (8 artboards:
+tab, history drawer, log drawer, loan section, phone, home, report) and then
+built exactly as approved, with two engineering adjustments noted below.
+
+Model (migration 033, forward-only, backfills `channel` from the old free-text
+`method`): collection_call gains fu_type (followup_type: interest · ptp ·
+overdue · renewal · notice · kyc · other), channel (followup_channel: call ·
+visit · sms · whatsapp · email · ai_call · notice), ptp_amount_paise,
+next_type, assigned_to; call_outcome gains will_renew · not_at_home ·
+notice_sent. The table stays append-only (fn_forbid_mutation). Nothing
+derived is stored: a loan's DUE follow-up is its latest row's next_follow_up
+when no later row exists; MISSED = that date < today; a promise is KEPT when
+any receipt falls between the day it was taken and the promised day, BROKEN
+once the promised day has passed without one, OPEN until then. The "day" of a
+row is its IST calendar day computed in SQL ((at AT TIME ZONE
+'Asia/Kolkata')::date) — never String(Date).slice(0,10).
+
+Screens (all collect-desk gated: view to see, full to log):
+- Loan page: Follow-ups card in the left column above the payment history —
+  next-due banner (missed red / today amber), the system's suggestion, the
+  timeline (newest first, receipts interleaved, channel chips, kept/broken
+  record), "+ Log a follow-up" in place. The old right-column "Follow-ups &
+  notices" card is now "More on this loan" (notices, state history); its
+  legacy "+ Follow-up" is off.
+- /followups tab (nav, with a red badge = due-or-missed count at the acting
+  branch): opens on TODAY for the acting branch; When presets Missed · Today ·
+  Tomorrow · This week (with counts) or a custom range; Centre select (walled
+  to the actor's postings); Assigned to (everyone / me / unassigned / a
+  person); type chips; channel; text search. Bands: Missed (carried into any
+  range that holds today — never dropped), Today, Suggested by the system,
+  Tomorrow, Later; "Done in this range" stays listed. Every row: Call (tel:),
+  History, Log →. History and Log open in a side panel (540px, sticky) on a
+  wide screen and full-screen below 1180px; the list beside an open panel
+  collapses to the 2-column card layout so nothing is clipped. Save & next
+  walks down the list; a just-logged row stays in place marked ✓ logged
+  until the filters change; responses are sequence-guarded so a slow fetch
+  never paints over a newer one. ?focus=<loanId> opens the log panel on
+  arrival (the Home card's Log →).
+- The one logging form (FollowupLogForm): 1 what · 2 how (tel: and a
+  prefilled WhatsApp link; SMS / AI call log only until a provider is wired —
+  ledger) · 3 what happened (promise → amount + date, kept/broken by the
+  system) · 4 remark + quick phrases · 5 next follow-up (tomorrow / +3 / +7
+  / on PTP day / pick / none) with next type and assignee (must be posted to
+  the loan's branch — refused otherwise). Posts to /api/followups; audit
+  action follow_up. Starts on the due item's type, else the suggested type.
+- Home: "Follow-ups due today · N" card (M mine · K missed, first four with
+  Log →, link to the tab), hidden when nothing is due.
+- Reports · Follow-up Register (/reports/followups, reports desk): period +
+  branch + type + channel + staff; KPI tiles (due · missed · unassigned ·
+  logged · promises · kept · broken); tabs Due / Done / Promises (paid-by-then
+  amount) / By staff (logged, calls, visits, promises, kept, broken, due
+  assigned, missed); CSV per tab.
+- Legacy /overdue still works and its POST now writes channel + next_type.
+
+Engineering adjustments to the approved UX (reported to the owner):
+1. Suggestions are a SHORTLIST, not the book. On the imported B3 book ~800 of
+   1,100 running loans qualify (interest unpaid 30+ days is the norm). The
+   whole list took 2 s to price and would have buried the day's work. Now:
+   cheap SQL proxies rank every candidate (broken promise → past tenure+grace
+   with no notice → renewal within 15 days → longest since the last receipt),
+   the engine prices only the top 30 (SUGGESTION_LIMIT), the band header
+   says "30 of 795 shown, most pressing first". 2 s → ~170 ms.
+2. Missed items are carried into any range that includes today (the design
+   said "carried forward, never dropped"; the first cut only showed them
+   under the Missed preset).
+
+Also fixed on the way: lib/format.dmy() given a Date (a timestamptz from the
+database) printed the 60-character JS date string — the Home "Ready to
+disburse" block showed "Wed Oct 14 2026 17:40:19 GMT+0530 (India Standard
+Time)"; it now prints the IST day.
+
+Proof: test-followups 55 (labels, presets, due/PTP status, suggestions and
+the shortlist ranking, validation, grouping); test-format 34; battery 22/22;
+verify-replay unchanged (19 pre-existing); walk-followups (API+DB, 70 checks:
+permissions, branch wall, assignee check, columns + audit, every filter, due
+derivation and clearing, validation, missed + Home card + badge = DB, PTP
+kept/broken, register tabs/filters/wall, legacy POST, pages) and
+walk-followups-ui (Playwright at 1300 / 1024 / 768: badge + Home card, bands,
+chips, header layout vs card layout, presets, custom range, centre select,
+History panel beside/full-screen, Log → promise → Save & next → plain save
+→ DB rows, nothing carried between rows, suggested type pre-selected, loan
+page log in place, register tabs, no horizontal scroll anywhere) — each run
+three times; every earlier walk re-run green (walk-rates-ui's wizard half:
+the known O-P fixture rot, unchanged).
+
+Open: O-S — SMS / AI-call providers (ledger); until then those channels only
+log. O-T — the suggestion limit (30) and the 30-day interest threshold are
+constants in lib/followups.js; make them settings if the owner wants to tune
+them. O-U — "overdue" everywhere else still means past tenure (O-O stands).
+
+## E34 — the FUNDING rate is the only rate the application uses (owner ruling, 15 Oct 2026)
+
+Ruling: "use only funding rate from hq/rate for all calculation and display
+purpose everywhere in the application; market value is only to be used in
+auction cases." Formula confirmed with the owner on real figures before the
+change: funding value = net g × funding rate (24K) × purity % × scheme
+funding %, rounded UP to ₹100 per ornament (R16, unchanged — the owner was
+told the ceiling can exceed the exact figure by up to ₹99 per ornament and
+did not ask for rounding down). The valuation engine, the wizard, the save and
+approval gates already used the funding figure; this episode removed the
+market figure from every other screen.
+
+Changed: Settings · Metals reckoner multiplies the funding rate ("Funding
+rate ₹/g"; linked metals use gold's funding rate); HQ rate board's per-purity
+reckoner quotes the lending rate only (the board still takes BOTH rates and
+refuses funding > market — it is the one place market is entered); HQ
+approvals shows Funding value only; the Appraisal Note prints funding value
+per ornament and in the totals (no "Valuation"); Loan Details carries one
+Funding ₹ column (market no longer sent); the login screen quotes the funding
+rate. Market value is still COMPUTED and STORED on every appraisal row
+(appraisal_item.market_paise) and in daily_rate for the auction module and
+for LTV compliance — it is just not displayed. CLAUDE.md product rule updated.
+
+Also closed O-A on the way (a same-day rate correction raised a raw 500
+because the publish route DELETEd today's frozen row): migration 034 drops
+UNIQUE (rate_date, metal_id) and indexes (metal_id, rate_date DESC,
+published_at DESC); a re-publish now APPENDS a correction row;
+rate_in_force() already picks the latest publish of the day; the board's
+history shows the time of each publish and marks earlier same-day rows
+"corrected later that day"; Settings · Metals reads the latest publish.
+Needed now because the owner will set a real gold funding rate for the
+first time and may well correct it the same day.
+
+Proof: battery 22/22; verify-replay unchanged (19); walk-e34 (API+SSR: pair
+check, same-day correction rows + board marker, login figure, approvals,
+appraisal note, Loan Details API, metals API, valuation figure, a fresh
+pledge snapshots and prices off the funding rate; restores the pair) and
+walk-e34-ui (Metals reckoner header + 22K row ₹11,290 → ₹10,386.80, no
+market figure; rate-board reckoner; Loan Details columns; approvals) — each
+twice; every earlier walk re-run green (walk-rates-ui: the known O-P three,
+two of which assert market figures that are now gone by design — O-P stands
+as fixture rot to rewrite).
+
+Open: O-V — the gold funding rate on prod has always equalled the market
+rate (₹12,300 / ₹12,300): the owner should publish the real pair.
+
+## E35 — change my password (owner report, 15 Oct 2026)
+
+Report: "I'm not able to change password." Finding: /setpw and /api/auth/password
+existed and worked, but nothing linked to them — the only route in was the forced
+change after a temporary password; the initials badge was a plain span; the admin
+reset card even promised a "sign-in menu" that was never built.
+
+Built: the initials badge (top right) is now the PROFILE MENU — "Signed in as"
+name · username · emp code, "Change my password" (→ /setpw), "Sign out".
+/setpw has two faces: FORCED (temporary password at sign-in: no current
+password asked) and VOLUNTARY (from the menu: the CURRENT password is required
+and verified server-side, the new one must differ; an unattended signed-in
+screen cannot have its password changed by a passer-by). The live rule chips
+now carry the real username. Every open session of the user ends on either
+change (unchanged); /login?changed=1 says so. Audit: password_set (forced) /
+password_changed (voluntary). Settings · Employees → Reset password keeps
+letting an admin type any password manually (shown, not hidden — it is read
+out); it now shows the same live rule chips so a refusal is never a mystery,
+and the "shown once" card points at the profile menu. No database change.
+
+Proof: battery 22/22; walk-e35 (throwaway employee: voluntary refusals —
+missing/wrong/same/policy/username — then success, old session dead, old
+password dead, new signs in, audit; admin reset + policy + session end; the
+forced path end to end; signed-out callers) and walk-e35-ui (1300 and 768:
+menu contents and placement, Change my password → wrong current refused on
+screen → username rule chip + disabled button → success → login notice → new
+password signs in, one live session; forced form has no current field;
+Reset-password dialog chips and the "shown once" card) — each twice; every
+earlier walk green (O-P three unchanged).
+
+## E36 — interest in DAYS: paid up to / due for, and what a payment buys (owner, 15 Oct 2026)
+
+Ask: after a part payment, show on the loan page and the collect screen how
+many days' interest are paid and how many are due; while the amount is being
+typed, show how many days that payment buys.
+
+Definition (derived, never stored; engine.interestCoverage / paymentCoverage,
+pure, no pricing change — ENGINE_VERSION stays 1.2.0):
+- every day before the cycle anchor is paid (sealed cycles are paid in full);
+- inside the open cycle, interestPaidInCycle buys whole days at the rate the
+  cycle is priced at TODAY (R-B retroactive: crossing day 62 re-prices the
+  cycle at 24%, so the same rupees buy fewer days — e.g. ₹400 = 50 days at 18%
+  on day 61, 37 days on day 63; prospective schemes count day by day);
+- whatever the ₹10-rounded due does not divide into whole days counts as one
+  due day, so paid + due always equals the cycle's length;
+- the min-interest floor can carry the customer PAST today (advance days);
+- "paid up to" = the last paid day (the day before disbursement when nothing
+  has been paid); lifetime paid days = disbursement → paid up to.
+- a payment preview: the part reaching interest (after charges and penal,
+  R-G) buys floor(amount / per-day) days, capped at due−1 unless it clears
+  the whole due, in which case paid-up-to becomes today (or the floor date).
+
+Screens: components/InterestClock — one strip, same words everywhere:
+"✓ Interest paid up to DD-MM-YYYY (N days) · ● Due for M days — DD-MM to
+DD-MM · ₹X" (green when nothing is due or paid in advance, amber ≤30 due
+days, red beyond). Loan page: under the figure tiles (running view, active
+loans only). Collect screen: under the header; the interest working row says
+"of these, N days already paid (up to …) · M days due (… to …)" with the
+Days column = due days "of C"; under "To interest" in the appropriation
+panel a live line — "₹a pays N days of interest — from to. Still due: M days
+(from to) = ₹r" / "less than one day's interest" / "Interest paid in full for
+all M days … paid up to today; the clock restarts tomorrow" (or "carries the
+customer to … N days ahead" under the floor); the chip repeats the days. The
+receipt view and the printed receipt carry "Interest paid up to … (N days)"
+and "Interest still due: M days from …". APIs: /dues answers `coverage`;
+/receipt answers `coverageAfter`.
+
+Proof: test-engine 89 (§10, 19 cases incl. loan 03A5602283's figures:
+₹870 → 82 days, 25 Feb → 17 May; full → paid up to today; floor → 10 days
+ahead; retroactive re-pricing; prospective; sub-day amounts); battery 22/22;
+verify-replay unchanged (19); walk-e36 (API+DB on a fresh never-paid loan:
+nothing paid → part payment: days bought = per-day arithmetic, paid+due =
+cycle, anchor unmoved, dues == coverageAfter, stored appropriation matches →
+balance interest: paid up to today, seals the cycle → loan page strips →
+closed loan has none) and walk-e36-ui (1300 and 768: strip, working row,
+live preview for a part amount / ₹100 / Interest-only, chips, real cash
+receipt, receipt view + print lines, loan page after, working row split) —
+each twice. Earlier walks green; walk-e28/e35/employee-create fail only after
+18:00 IST because their throwaway Counter Operators hit that role's sign-in
+window — re-run with the window widened: all pass (O-W: give the walks a
+role without a window).

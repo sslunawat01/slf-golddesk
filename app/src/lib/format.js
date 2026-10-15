@@ -94,6 +94,11 @@ export function rupeesInWords(rupees) {
 /** E20 №1: the ONE date display — DD-MM-YYYY, everywhere. */
 export const dmy = (d) => {
   if (!d) return "—";
+  if (d instanceof Date) {                       // a timestamp from the database → its IST calendar day
+    const p = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Kolkata", day: "2-digit", month: "2-digit", year: "numeric" }).formatToParts(d);
+    const g = (t) => p.find(x => x.type === t).value;
+    return `${g("day")}-${g("month")}-${g("year")}`;
+  }
   const s2 = String(d).slice(0, 10).split("-");
   return s2.length === 3 ? `${s2[2]}-${s2[1]}-${s2[0]}` : String(d);
 };

@@ -42,8 +42,8 @@ export async function POST(req) {
     return NextResponse.json({ ok: false, reason: "Those are already today's rates" }, { status: 409 });
 
   await tx(async (cl) => {
-    // one rate per date: re-publishing today replaces today's row, history is kept in audit
-    await cl.query(`DELETE FROM daily_rate WHERE rate_date = CURRENT_DATE AND metal_id = $1`, [mid]);
+    // E34 / O-A: re-publishing today APPENDS a correction row (daily_rate is frozen —
+    // migration 034 dropped the one-row-per-day constraint); rate_in_force() takes the latest
     await cl.query(
       `INSERT INTO daily_rate (rate_date, metal_id, base_paise, funding_paise, reference_paise,
          source_ref, maker_id, checker_id, jump_pct, jump_confirmed)

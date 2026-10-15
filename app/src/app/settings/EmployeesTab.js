@@ -84,8 +84,13 @@ export default function EmployeesTab() {
   // ——— wizard helpers ———
   const w = wiz || blank();
   const setW = (k) => (e) => setWiz({ ...w, [k]: e?.target ? e.target.value : e });
-  const toggle = (k, id) => setWiz({ ...w,
-    [k]: w[k].includes(id) ? w[k].filter(x => x !== id) : [...w[k], id] });
+  // E28: un-ticking the starred branch used to leave primaryBranchId pointing
+  // at a branch no longer ticked → the server refused at the very last step
+  const toggle = (k, id) => {
+    const off = w[k].includes(id);
+    setWiz({ ...w, [k]: off ? w[k].filter(x => x !== id) : [...w[k], id],
+      ...(k === "branchIds" && off && w.primaryBranchId === id ? { primaryBranchId: 0 } : {}) });
+  };
 
   const miss = [
     !w.fullName.trim() || !/^[6-9]\d{9}$/.test(w.mobile.replace(/\D/g, "")),
@@ -153,7 +158,7 @@ export default function EmployeesTab() {
             Username&nbsp; <b>{made.username}</b><br />
             Password&nbsp; <b>{made.password}</b>
           </div>
-          <div className="hint">This password works as-is — they may change it themselves later from the sign-in menu.</div>
+          <div className="hint">This password works as-is — they can change it themselves any time from the profile menu (their initials, top right) → Change my password.</div>
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 10 }}>
             <button className="btn ghost" onClick={() =>
               navigator.clipboard?.writeText(`SLF GoldDesk — https://slf.slunawat.in\nUsername: ${made.username}\nTemporary password: ${made.password}`)}>
@@ -241,14 +246,21 @@ export default function EmployeesTab() {
           </>) : (<>
             <div style={{ fontWeight: 900 }}>Reset password — {action.username}</div>
             <div className="hint" style={{ margin: "4px 0 12px" }}>
-              Type the new password. Their open sessions end; the new password works as-is.</div>
+              Type the new password yourself (it is shown, not hidden — you will read it out to them). Their open sessions end; the new password works as-is.</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div><span style={F}>Password *</span>
-                <input style={I} value={action.password}
+                <input style={I} value={action.password} data-reset-pw
                   onChange={e => setAction({ ...action, password: e.target.value })} /></div>
               <div><span style={F}>Type it again *</span>
-                <input style={I} value={action.confirm}
+                <input style={I} value={action.confirm} data-reset-confirm
                   onChange={e => setAction({ ...action, confirm: e.target.value })} /></div>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>
+              {[["at least 10 characters", action.password.length >= 10], ["one number", /\d/.test(action.password)],
+                ["one letter", /[a-zA-Z]/.test(action.password)],
+                ["not the same as the username", !!action.password && action.password.toLowerCase() !== String(action.username).toLowerCase()],
+                ...(action.confirm ? [[action.password === action.confirm ? "passwords match" : "passwords do not match", action.password === action.confirm]] : [])]
+                .map(([label, pass]) => <span key={label} className={"chip " + (pass ? "ok" : "mut")}>{pass ? "✓" : "•"} {label}</span>)}
             </div>
           </>)}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 12 }}>
@@ -363,8 +375,13 @@ export default function EmployeesTab() {
                 </datalist></div>
             </div>
             <span style={F}>Role * — what they may do (one only)</span>
+            {/* E28 (owner report, 14 Oct 2026): this called the CURRIED setW with an
+                object — setW(obj) only builds a function and discards it, so a role
+                click did nothing and step 3 never unlocked. Broken since E14 №7
+                (28 Aug) made the pick single; no employee could be created after
+                27 Aug. setWiz takes the whole form — same as the edit row below. */}
             <TickRow items={data.roles.map(r => [r.id, r.name])} on={w.roleIds}
-              toggle={(id) => setW({ ...w,
+              toggle={(id) => setWiz({ ...w,
                 roleIds: w.roleIds.includes(id) ? [] : [id] })} />
             <span style={{ ...F, marginTop: 12 }}>Branches * — where they may work
               (tap ★ to set the primary)</span>
@@ -490,7 +507,9 @@ function RowGroup({ e, td, open, onOpen, data, mem, setMem, canEdit, busy, selfI
                 <button key={b.id} disabled={!canEdit}
                   onClick={() => setMem({ ...mem,
                     branchIds: on ? mem.branchIds.filter(x => x !== b.id)
-                      : [...mem.branchIds, b.id] })}
+                      : [...mem.branchIds, b.id],
+                    // E28: same rule in the edit row — the star leaves with its branch
+                    ...(on && mem.primaryBranchId === b.id ? { primaryBranchId: 0 } : {}) })}
                   style={tick(on)}>
                   {on && <span onClick={(ev) => { ev.stopPropagation();
                       setMem({ ...mem, primaryBranchId: b.id }); }}

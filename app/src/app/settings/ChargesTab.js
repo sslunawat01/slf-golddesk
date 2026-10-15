@@ -22,7 +22,9 @@ export default function ChargesTab() {
     .then(r => r.ok ? setData(r) : setErr(r.reason)).catch(() => setErr("Could not load charges"));
   useEffect(() => { load(); }, []);
 
-  if (err) return <div className="card"><TopNotice notice={err} onClose={() => setErr(null)} /><span className="chip bad">{err}</span></div>;
+  // E28: only a LOAD failure replaces the tab — a save refusal used to hide the
+  // whole table and form behind a red card, so the inline reason never showed
+  if (err && !data) return <div className="card"><TopNotice notice={err} onClose={() => setErr(null)} /><span className="chip bad">{err}</span></div>;
   if (!data) return <div className="card" style={{ color: "var(--mut)" }}>Loading…</div>;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });

@@ -9,14 +9,23 @@ export const dynamic = "force-dynamic";
 /**
  * Forgot password by OTP. Unauthenticated by nature.
  *
- * TESTING MODE (recorded as weakening W7): no SMS gateway yet (№27), so the
- * code is RETURNED to the browser and shown on the screen. Anyone at the
- * login page can therefore reset any password — acceptable only while the
- * owner is the sole user. Before staff onboarding, wire sendSms() to the
- * chosen provider (MSG91 suggested); once it reports sent:true, the code is
- * never returned to the browser and W7 is closed. Nothing else changes.
+ * E28 (14 Oct 2026) — W7 CLOSED. Testing mode returned the code to the
+ * browser, so anyone could reset ANY account (the owner's included). The
+ * owner's own recorded rule was "acceptable only while the owner is the sole
+ * user"; eleven staff accounts now exist, so that condition has passed.
+ * The code is NEVER returned to the browser any more. Until sendSms()
+ * really delivers (№27, provider pending), self-service reset refuses up
+ * front — BEFORE looking the person up, so it no longer reveals which
+ * usernames exist — and points to the administrator's Reset password
+ * (Settings → Employees). When SMS lands, nothing else needs to change.
  */
 const store = new Map();                    // employee id → { code, expiresAt, attempts }
+
+/** True only once a provider is configured AND sendSms() is really wired. */
+function smsLive() {
+  return !!process.env.SMS_PROVIDER && SMS_WIRED;
+}
+const SMS_WIRED = false;   // flip to true in the same patch that implements the provider call
 
 async function sendSms(mobile, code) {
   if (!process.env.SMS_PROVIDER) return { sent: false, mode: "manual" };
@@ -36,6 +45,10 @@ async function findEmployee(who) {
 
 export async function POST(req) {
   const { action, who: whoRaw, code, password } = await req.json().catch(() => ({}));
+  if (!smsLive())
+    return NextResponse.json({ ok: false,
+      reason: "Self-service password reset is switched off until SMS is connected. Ask your administrator to reset your password (Settings → Employees → Reset password)." },
+      { status: 503 });
   const who = classifyWho(whoRaw);
   if (!who.ok) return NextResponse.json({ ok: false, reason: who.reason }, { status: 400 });
 
@@ -48,13 +61,13 @@ export async function POST(req) {
     const otp = newOtp();
     store.set(Number(emp.id), { code: otp, expiresAt: Date.now() + OTP_TTL_MS, attempts: 0 });
     const sms = await sendSms(emp.mobile, otp);
-    return NextResponse.json({
-      ok: true, mode: sms.mode, name: maskName(emp.full_name),
-      // TESTING MODE ONLY — never returned once SMS is live (W7)
-      manualCode: sms.sent ? undefined : otp,
-      note: sms.sent ? "OTP sent by SMS to your registered mobile"
-                     : "TESTING MODE — SMS gateway not connected. This code is shown here only until it is.",
-    });
+    if (!sms.sent) {                     // never fall back to showing the code (W7)
+      store.delete(Number(emp.id));
+      return NextResponse.json({ ok: false,
+        reason: "The SMS could not be sent — ask your administrator to reset your password" }, { status: 503 });
+    }
+    return NextResponse.json({ ok: true, mode: sms.mode, name: maskName(emp.full_name),
+      note: "OTP sent by SMS to your registered mobile" });
   }
 
   if (action === "reset") {
@@ -72,7 +85,7 @@ export async function POST(req) {
     await setPassword(emp.id, password);       // hashes + revokes every open session
     await q(`INSERT INTO audit_log (employee_id, entity_table, entity_id, action, after)
              VALUES ($1,'employee',$1,'password_reset_otp',$2)`,
-      [emp.id, JSON.stringify({ via: "otp", mode: "manual_testing" })]);
+      [emp.id, JSON.stringify({ via: "otp", mode: "sms" })]);
     return NextResponse.json({ ok: true });
   }
 

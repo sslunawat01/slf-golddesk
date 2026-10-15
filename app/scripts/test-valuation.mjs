@@ -83,10 +83,16 @@ console.log("\n§7 Disbursement (R11 269SS · R19 verified accounts)");
      disbursementPlan({ principalPaise: 10000000, chargesPaise: 0,
        cashPaise: CASH_CAP_PAISE, bankLegs: [verified(8000000)] }).problems[0],
      "cash must be under ₹20,000 (Sec 269SS) — send the balance to a bank account");
-  eq("unverified account refused",
-     disbursementPlan({ principalPaise: 5000000, chargesPaise: 0, cashPaise: 0,
-       bankLegs: [{ amountPaise: 5000000, verified: false }] }).problems[0],
-     "an unverified bank account cannot receive money");
+  // E29 (owner ruling, 14 Oct 2026): unverified is FLAGGED for a signed
+  // confirmation, no longer refused by the plan
+  { const up = disbursementPlan({ principalPaise: 5000000, chargesPaise: 0, cashPaise: 0,
+       bankLegs: [{ amountPaise: 5000000, verified: false }] });
+    eq("unverified account is not a refusal", up.ok, true);
+    eq("…but is flagged for the signed confirmation", up.needsUnverifiedConfirm, true);
+    eq("…naming exactly that leg", up.unverifiedLegs.length, 1);
+    eq("a verified account needs no confirmation",
+       disbursementPlan({ principalPaise: 5000000, cashPaise: 0,
+         bankLegs: [{ amountPaise: 5000000, verified: true }] }).needsUnverifiedConfirm, false); }
   eq("under-allocation caught",
      disbursementPlan({ principalPaise: 5000000, chargesPaise: 0, cashPaise: 0,
        bankLegs: [verified(4000000)] }).problems[0], "₹10,000 still unallocated");
@@ -174,7 +180,20 @@ console.log("\n§12 The 269SS cash cap still holds after the change");
   eq("cash of exactly ₹20,000 is refused", p.ok, false);
   const u = disbursementPlan({ principalPaise: 5000000, cashPaise: 1000000,
     bankLegs: [{ accountId: 1, amountPaise: 4000000, verified: false }] });
-  eq("an unverified account is still refused", u.problems.includes("an unverified bank account cannot receive money"), true);
+  eq("an unverified account is flagged, not refused (E29)", u.ok && u.needsUnverifiedConfirm, true);
+}
+
+
+// ═════ E32 №6 (owner, 15 Oct 2026): the cash cap is a setting ═════
+{
+  const legs = [{ accountId: 1, amountPaise: 1000000, verified: true }];
+  eq("₹25,000 cash refused under the legal cap", disbursementPlan({ principalPaise: 3500000, cashPaise: 2500000, bankLegs: legs }).ok, false);
+  eq("…the message names the law", /269SS/.test(disbursementPlan({ principalPaise: 3500000, cashPaise: 2500000, bankLegs: legs }).problems[0]), true);
+  const raised = disbursementPlan({ principalPaise: 3500000, cashPaise: 2500000, bankLegs: legs, cashCapPaise: 5000000 });
+  eq("₹25,000 cash accepted when the owner's limit is ₹50,000", raised.ok, true);
+  const hit = disbursementPlan({ principalPaise: 3500000, cashPaise: 2500000, bankLegs: legs, cashCapPaise: 2500000 });
+  eq("exactly the limit is still refused (must be BELOW)", hit.ok, false);
+  eq("…and the message names Settings · Limits, not the law", /Settings · Limits/.test(hit.problems[0]), true);
 }
 
 console.log(`\n${pass} passed · ${fail} failed`);

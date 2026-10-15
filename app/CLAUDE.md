@@ -86,7 +86,10 @@ processing ₹177 collects as **₹180**, ₹3 to Rounding income.
   the wizard.
 - **Vault-in is the next working day**: seal intact → recount → weight recheck →
   safe. Sealing/QR happens there. One photo set for all ornaments together.
-- Valuation and funding values shown separately, both rounded **up to ₹100**.
+- **Funding rate is the only rate the application calculates and displays with** (E34, owner
+  15 Oct 2026). Market rate is entered on the HQ rate board (must be ≥ funding) and stored per
+  appraisal row for auction use only. Funding value = net g × funding rate × purity % × scheme
+  funding %, rounded **up to ₹100** per ornament (R16).
 - KYC valid 3 years (amber ≤90 days, red = lending blocked). Zero limits ⇒
   blacklisted, narration mandatory, red banner forever.
 - Gold release within **7 working days**, chips green → amber day 5 → red day 7,

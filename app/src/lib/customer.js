@@ -46,6 +46,22 @@ export function blacklistState(maxOpenLoans, maxOutstandingPaise, narration) {
 }
 
 /** May we start a new pledge for this customer? */
+/** Completed years of age on `today` (both 'YYYY-MM-DD'); null when the date is not a full date. */
+export function ageOn(dob, today) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dob || "")) || !/^\d{4}-\d{2}-\d{2}$/.test(String(today || ""))) return null;
+  const y = Number(dob.slice(0, 4)), m = Number(dob.slice(5, 7)), d = Number(dob.slice(8, 10));
+  const ty = Number(today.slice(0, 4)), tm = Number(today.slice(5, 7)), td = Number(today.slice(8, 10));
+  let age = ty - y;
+  if (tm < m || (tm === m && td < d)) age -= 1;
+  return age;
+}
+/** E32 №10 (owner, 15 Oct 2026): nobody under 18 becomes a customer. */
+export const ADULT_AGE = 18;
+export function underAge(dob, today) {
+  const a = ageOn(dob, today);
+  return a != null && (a < ADULT_AGE || a > 120);
+}
+
 export function mayLend(customer, today) {
   if (customer.isBlacklisted) return { ok: false, reason: "blacklisted — lending blocked" };
   const k = kycStatus(customer.kycDoneAt, today);
@@ -62,11 +78,16 @@ export const isPan = (s) => /^[A-Z]{5}\d{4}[A-Z]$/.test(String(s || "").trim().t
 export const isIfsc = (s) => /^[A-Z]{4}0[A-Z0-9]{6}$/.test(String(s || "").trim().toUpperCase());
 export const isPincode = (s) => /^[1-9]\d{5}$/.test(String(s || "").trim());
 
-/** Bank rows must be verified before money may be sent to them (R19). */
+/**
+ * Is this account VERIFIED? One meaning everywhere, the database's: verified_at
+ * is set (E29, 14 Oct 2026). A cheque photo is evidence for the verify
+ * ceremony, not verification itself — the old rule counted it as payable
+ * while the payout trigger refused it, so cheque-only payouts crashed at the
+ * last step. Unverified accounts may now be paid after a signed pop-up.
+ */
 export function bankPayable(acct) {
   if (acct.verifiedAt) return { ok: true };
-  if (acct.verifyMethod === "cheque_photo" && acct.chequeFileId) return { ok: true };
-  return { ok: false, reason: "unverified — cannot receive disbursement" };
+  return { ok: false, reason: "unverified — payout needs a confirmation" };
 }
 
 /** GST: 27ABCDE1234F1Z5 — 2 digits, 5 letters, 4 digits, letter, digit, Z, 1 char. */
@@ -91,6 +112,8 @@ export function validateNewCustomer(c) {
   if (!c.firstName?.trim()) miss.identity.push("first name");
   if (!c.lastName?.trim()) miss.identity.push("last name");
   if (!c.dob) miss.identity.push("date of birth");
+  else if (c.custType !== "corporate" && underAge(c.dob, c.today || new Date().toISOString().slice(0, 10)))
+    miss.identity.push("18 years of age (under-age — cannot be a customer)");
   if (!c.gender) miss.identity.push("gender");
   if (!c.custType) miss.identity.push("customer type");
 
@@ -125,7 +148,8 @@ export function validateNewCustomer(c) {
     if (!b.accountNo?.trim()) continue;
     if (!isIfsc(b.ifsc)) miss.documents.push(`account ${i + 1}: IFSC`);
     else if (!b.holderName?.trim()) miss.documents.push(`account ${i + 1}: holder name`);
-    else if (!bankPayable(b).ok) miss.documents.push(`account ${i + 1}: verify/cheque`);
+    // E29 (owner, 14 Oct 2026): an unverified account may now be SAVED — it is
+    // paid later behind the signed pop-up — so verification no longer blocks.
   }
 
   // —— tab 3 · nominee ——

@@ -3,8 +3,9 @@ import { useState } from "react";
 
 /** Right-hand header cluster: branch (with switch for multi-branch users),
  *  user initials, and an icon-only sign-out. Server shell passes plain data. */
-export default function HeaderCluster({ employeeId, branches, actingBranchId, initials }) {
+export default function HeaderCluster({ employeeId, branches, actingBranchId, initials, fullName = "", username = "", empCode = "" }) {
   const [open, setOpen] = useState(false);
+  const [me, setMe] = useState(false);            // E35: the profile menu under the initials
   const [busy, setBusy] = useState(false);
   const acting = branches.find(b => b.id === actingBranchId);
 
@@ -13,7 +14,8 @@ export default function HeaderCluster({ employeeId, branches, actingBranchId, in
     setBusy(true);
     const r = await fetch("/api/auth/branch", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ employeeId, branchId, keep: true }),
+      // E28: identity comes from the session cookie on the server, never the body
+      body: JSON.stringify({ branchId, keep: true }),
     }).then(r => r.json()).catch(() => null);
     if (r?.ok) { window.location.href = "/home"; return; }
     setBusy(false); setOpen(false);
@@ -60,10 +62,30 @@ export default function HeaderCluster({ employeeId, branches, actingBranchId, in
         </span>
       )}
 
-      {/* user initials */}
-      <span title={undefined} style={{ width: 36, height: 36, borderRadius: 99,
-        background: "var(--brass)", color: "#0c231b", display: "grid", placeItems: "center",
-        fontWeight: 900, fontSize: 13, letterSpacing: ".02em" }}>{initials}</span>
+      {/* user initials → profile menu (E35, owner 15 Oct 2026): who is signed in, change password, sign out */}
+      <button type="button" onClick={() => { setMe(o => !o); setOpen(false); }} data-me-menu
+        title={fullName || "Signed-in user"} aria-label="Profile menu" aria-expanded={me}
+        style={{ width: 36, height: 36, borderRadius: 99, border: me ? "2px solid #fff" : "2px solid transparent",
+          background: "var(--brass)", color: "#0c231b", display: "grid", placeItems: "center",
+          fontWeight: 900, fontSize: 13, letterSpacing: ".02em", cursor: "pointer", padding: 0 }}>{initials}</button>
+      {me && (
+        <div data-me-panel style={{ position: "absolute", top: "calc(100% + 8px)", right: 0, zIndex: 200,
+          background: "#123227", border: "1px solid #1b4434", borderRadius: 14,
+          padding: 6, minWidth: 240, boxShadow: "0 12px 30px rgba(0,0,0,.35)" }}>
+          <div style={{ padding: "8px 12px 10px", borderBottom: "1px solid #1b4434", marginBottom: 4 }}>
+            <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: ".08em", color: "#5f8f7b", textTransform: "uppercase" }}>Signed in as</div>
+            <div style={{ color: "#fff", fontWeight: 800, fontSize: 14, marginTop: 2 }}>{fullName}</div>
+            <div className="mono" style={{ color: "#cfe4da", fontSize: 12 }}>{username}{empCode ? ` · ${empCode}` : ""}</div>
+          </div>
+          <a href="/setpw" data-me-changepw style={{ display: "flex", alignItems: "center", gap: 8, color: "#cfe4da", borderRadius: 10,
+            padding: "9px 12px", fontSize: 13, fontWeight: 700, textDecoration: "none" }}>
+            <span style={{ color: "var(--brass-soft)" }}>🔑</span> Change my password</a>
+          <form action="/api/auth/logout" method="post" style={{ display: "flex" }}>
+            <button type="submit" style={{ display: "flex", width: "100%", alignItems: "center", gap: 8, background: "transparent",
+              border: 0, color: "#cfe4da", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", textAlign: "left" }}>
+              <span style={{ color: "var(--brass-soft)" }}>⏻</span> Sign out</button>
+          </form>
+        </div>)}
 
       {/* icon-only sign out */}
       <form action="/api/auth/logout" method="post" style={{ display: "flex" }}>

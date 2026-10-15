@@ -18,7 +18,8 @@ export default async function PledgePage({ params }) {
   if (!mayAppraise && !mayDisburse) redirect("/home");
 
   const app = await one(
-    `SELECT a.*, c.full_name AS customer_name, c.cust_no, c.id AS customer_id
+    `SELECT a.*, c.full_name AS customer_name, c.cust_no, c.id AS customer_id,
+            c.warning_remark, c.blacklist_remark
        FROM loan_application a JOIN customer c ON c.id = a.customer_id
       WHERE a.id = $1 AND a.branch_id = $2`, [id, actor.actingBranchId]);
   if (!app) notFound();
@@ -52,7 +53,8 @@ export default async function PledgePage({ params }) {
          JOIN employee_branch eb ON eb.employee_id=e.id AND eb.branch_id=$1
         WHERE e.status='active' ORDER BY e.full_name`, [actor.actingBranchId]),
     q(`SELECT id, bank, account_no AS "accountNo", ifsc, holder_name AS "holderName",
-              (verified_at IS NOT NULL OR cheque_file_id IS NOT NULL) AS payable
+              -- E29: one meaning of verified, the database's (cheque photo alone is NOT)
+              (verified_at IS NOT NULL) AS verified
          FROM customer_bank_account WHERE customer_id=$1 ORDER BY id`, [app.customer_id]),
     q(`SELECT a.id, a.nickname FROM slf_bank_account a
         WHERE a.active AND a.allow_disbursement
@@ -98,7 +100,7 @@ export default async function PledgePage({ params }) {
         app={{ id: Number(app.id), appNo: app.app_no, status: app.status,
           schemeVersionId: app.scheme_version_id ? Number(app.scheme_version_id) : null,
           requestedPaise: app.requested_paise ? Number(app.requested_paise) : null,
-          purpose: app.purpose, borrowerPresent: app.borrower_present,
+          purpose: app.purpose, borrowerPresent: app.borrower_present, remark: app.remark || "",
           valuer1Id: app.valuer1_id ? Number(app.valuer1_id) : null,
           valuer2Id: app.valuer2_id ? Number(app.valuer2_id) : null,
           presencePhoto: app.presence_photo_id ? await (async () => {
@@ -119,7 +121,8 @@ export default async function PledgePage({ params }) {
             fileId: Number(p.file_id),
             preview: await viewUrl(p.thumb_s3_key || p.s3_key).catch(() => null),
             url: await viewUrl(p.s3_key).catch(() => null), kb: 0 }))) }}
-        customer={{ id: Number(app.customer_id), fullName: app.customer_name, custNo: app.cust_no }}
+        customer={{ id: Number(app.customer_id), fullName: app.customer_name, custNo: app.cust_no,
+          warningRemark: app.warning_remark, blacklistRemark: app.blacklist_remark }}
         items={items.map(i => ({ itemId: String(i.item_id), qty: i.qty,
           gross: (i.gross_mg / 1000).toFixed(3), stone: (i.stone_mg / 1000).toFixed(3),
           purityId: String(i.purity_id), narration: i.narration || "" }))}
@@ -135,6 +138,7 @@ export default async function PledgePage({ params }) {
         base24k={Number(app.base_paise_snapshot)}
         funding24k={Number(app.funding_paise_snapshot ?? app.base_paise_snapshot)}
         valuer2Threshold={Number(thr?.value ?? 2000000)}
+        cashCapPaise={Number((await one(`SELECT value FROM app_setting WHERE key='cash_disburse_below_paise'`))?.value ?? 2000000)}
         canDisburse={can(actor, "disburse", { need: "full" }).ok}
         youApproved={!!youApproved} />
     </Shell>);

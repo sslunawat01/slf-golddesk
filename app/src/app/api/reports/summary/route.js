@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { q } from "@/lib/db.js";
-import { resolveBranchScope, resolvePeriod, activePositions } from "@/lib/reports.js";
+import { resolveBranchScope, resolvePeriod, activePositions, bookPrincipalAt } from "@/lib/reports.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -61,6 +61,14 @@ export async function GET(req) {
     ]);
     const positions = await activePositions(scope.ids);
 
+    // E27b (owner, 9 Sep 2026): outstanding AMOUNT as at the period start
+    // (close of the day before `from`) and the period end (close of `to`), by
+    // ENGINE REPLAY as of each date — the collect screen's own arithmetic, so
+    // with `to` covering today the End figure equals Principal O/s exactly.
+    const dayBefore = (await q(`SELECT ($1::date - 1)::text AS d`, [from]))[0].d;
+    const [OS1, OS2] = await Promise.all([
+      bookPrincipalAt(scope.ids, dayBefore), bookPrincipalAt(scope.ids, to)]);
+
     const branches = (actor.branches || []).filter(b => scope.ids.includes(Number(b.id)));
     const by = (list) => Object.fromEntries(list.map(r => [Number(r.branch_id), r]));
     const [D, C, A, AP, CN, R, B] = [by(disb), by(closed), by(apps), by(appr), by(canc), by(recs), by(buckets)];
@@ -69,18 +77,15 @@ export async function GET(req) {
       const id = Number(b.id);
       const live = positions.filter(p => Number(p.loan.branch_id) === id);
       const liveDue = live.reduce((a, p) => {
-        const pr = Math.round(p.state.principal * 100), d = p.dues._paise;
+        const pr = Number(p.state.principal), d = p.dues._paise;   // already paise (E27b)
         a.principal += pr; a.interest += d.interestDue; a.charges += d.chargesDue + d.penalDue;
         a.total += pr + d.interestDue + d.penalDue + d.chargesDue; return a;
       }, { principal: 0, interest: 0, charges: 0, total: 0 });
       const od = live.filter(p => p.overdue);
-      // owner 9 Sep 2026: the outstanding book's date range — oldest and
-      // newest disbursement dates among the branch's active loans
-      const disbDates = live.map(p => String(p.loan.disbursed_at)).sort();
       return {
         branch: `${b.code} ${b.name}`,
-        outstandingFrom: disbDates[0] || null,
-        outstandingTo: disbDates[disbDates.length - 1] || null,
+        osStartPaise: Number(OS1[id] || 0),
+        osEndPaise: Number(OS2[id] || 0),
         disbursedCount: D[id]?.n || 0, disbursedPaise: Number(D[id]?.principal || 0),
         disbursedGrams: Number(D[id]?.net_mg || 0) / 1000,
         closedCount: C[id]?.n || 0, closedPaise: Number(C[id]?.principal || 0),
@@ -88,7 +93,7 @@ export async function GET(req) {
         activePrincipalPaise: liveDue.principal, activeInterestPaise: liveDue.interest,
         activeChargesPaise: liveDue.charges, activeTotalDuePaise: liveDue.total,
         overdueCount: od.length,
-        overduePrincipalPaise: od.reduce((a, p) => a + Math.round(p.state.principal * 100), 0),
+        overduePrincipalPaise: od.reduce((a, p) => a + Number(p.state.principal), 0),
         goldGrams: live.reduce((a, p) => a + Number(p.loan.net_mg), 0) / 1000,
         appsStarted: A[id]?.n || 0, appsApproved: AP[id]?.n || 0, appsCancelled: CN[id]?.n || 0,
         receiptCount: R[id]?.n || 0, collectedPaise: Number(R[id]?.total || 0),

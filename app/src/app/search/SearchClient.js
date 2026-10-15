@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useRef } from "react";
+import RemarkPopup from "@/components/RemarkPopup.js";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
 
@@ -8,6 +9,25 @@ export default function SearchClient() {
   const [res, setRes] = useState(null);
   const [busy, setBusy] = useState(false);
   const timer = useRef(null);
+  // E32 №5: a blacklisted or warned customer in the results pops up once per
+  // search session — not again on every keystroke that still lists them
+  const shown = useRef(new Set());
+  const [popup, setPopup] = useState([]);
+  useEffect(() => {
+    if (!res) return;
+    const seen = new Set(), entries = [];
+    const add = (c) => {
+      const key = c.custNo || c.id; if (!key || seen.has(key)) return; seen.add(key);
+      for (const kind of ["blacklist", "warning"]) {
+        const remark = kind === "blacklist" ? c.blacklistRemark : c.warningRemark;
+        const tag = `${kind}:${key}`;
+        if (remark && !shown.current.has(tag)) { shown.current.add(tag);
+          entries.push({ kind, name: c.fullName || c.customerName, custNo: c.custNo, remark }); }
+      }
+    };
+    (res.customers || []).forEach(add); (res.loans || []).forEach(add);
+    if (entries.length) setPopup(entries);
+  }, [res]);
 
   useEffect(() => {
     clearTimeout(timer.current);
@@ -22,6 +42,7 @@ export default function SearchClient() {
 
   return (
     <div style={{ maxWidth: 760 }}>
+      <RemarkPopup entries={popup} onClose={() => setPopup([])} />
       <input className="i mono" autoFocus value={q} onChange={e => setQ(e.target.value)}
         placeholder="Customer at counter? Type mobile, name, or loan no…"
         style={{ fontSize: 17, height: 54 }} />
@@ -58,6 +79,8 @@ export default function SearchClient() {
               <div style={{ textAlign: "right" }}>
                 {c.isBlacklisted
                   ? <span className="chip bad">blacklisted</span>
+                  : c.warningRemark
+                  ? <span className="chip warn">⚠ warning on file</span>
                   : <span className={"chip " + (c.kyc.state === "valid" ? "ok" : c.kyc.state === "expiring" ? "warn" : "bad")}>
                       {c.kyc.label}</span>}
                 <div style={{ color: "var(--mut)", fontSize: 13, marginTop: 4 }}>

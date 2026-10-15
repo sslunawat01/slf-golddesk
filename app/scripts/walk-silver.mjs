@@ -19,7 +19,7 @@ async function login(username, password, branchHint) {
   if (j.next === "branch") {
     const r2 = await fetch(`${BASE}/api/auth/branch`, { method: "POST",
       headers: { "content-type": "application/json", cookie },
-      body: JSON.stringify({ employeeId: j.employeeId, branchId: branchHint }) });
+      body: JSON.stringify({ ticket: j.ticket, branchId: branchHint }) });   // E28: ticket, never a bare id
     cookie = (r2.headers.get("set-cookie") || "").split(";")[0] || cookie;
     const j2 = await r2.json();
     if (!j2.ok) throw new Error("branch select failed: " + JSON.stringify(j2));

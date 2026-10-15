@@ -31,7 +31,12 @@ ok(/MIS Reports/i.test(home) && /Transaction Reports/i.test(home) && /Cash \/ Ba
 async function runReport(path, expectRe, label) {
   await page.goto(BASE + path, { waitUntil: "networkidle" });
   await page.locator("button", { hasText: /run report/i }).click();
+  // E31: the Branch Summary replays every loan twice (period start and end);
+  // with the 1,000+ imported B3 loans that is ~3 s — wait for the figures, not a fixed pause
   await page.waitForTimeout(2500);
+  await page.waitForFunction((re) => { const t = document.body.innerText;
+      return new RegExp(re, "i").test(t) && /TOTAL|balance|position|opening/i.test(t); },
+    expectRe.source, { timeout: 30000 }).catch(() => {});
   const t = await page.innerText("body");
   ok(expectRe.test(t), `${label} renders figures`);
   ok(/TOTAL/i.test(t) || /balance|position|opening/i.test(t), `${label} shows totals/summary`);

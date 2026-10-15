@@ -30,9 +30,10 @@ export default function MetalsTab() {
   const canEdit = data.canEdit;
   const gold = data.metals.find(m => m.kind === "gold");
 
-  /** the base a grade multiplies: its own metal's rate — or GOLD's for %-of-gold metals */
-  const baseFor = (metal) => metal.valuedAsPctOfGold ? (gold?.rate?.basePaise ?? null)
-    : (metal.rate?.basePaise ?? null);
+  /** E34 (owner, 15 Oct 2026): the rate a grade multiplies is the FUNDING rate — its own
+   *  metal's, or GOLD's for %-of-gold metals. Market value is for auction only. */
+  const baseFor = (metal) => metal.valuedAsPctOfGold ? (gold?.rate?.fundingPaise ?? null)
+    : (metal.rate?.fundingPaise ?? null);
 
   async function post(body) {
     setBusy(true); setErr(null);
@@ -68,7 +69,7 @@ export default function MetalsTab() {
       <div className="card" style={{ padding: 0, overflow: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 660 }}>
           <thead><tr style={{ background: "#f0eee6" }}>
-            {["Metal", "Purity name", "Purity %", "Base rate ₹/g", "Rate at purity", "Lending"]
+            {["Metal", "Purity name", "Purity %", "Funding rate ₹/g", "Rate at purity", "Lending"]
               .map((h, i) => <th key={h} style={{ ...td, fontSize: 10.5, letterSpacing: ".07em",
                 textTransform: "uppercase", textAlign: i >= 2 && i <= 4 ? "right" : "left" }}>{h}</th>)}
           </tr></thead>
@@ -254,7 +255,7 @@ export default function MetalsTab() {
                 {m.valuedAsPctOfGold
                   ? "prices as a % of the gold rate — grades above carry the percentage"
                   : m.rate
-                    ? `set ${String(m.rate.date).slice(0, 10)} · market ${inr(m.rate.basePaise)} · funding ${inr(m.rate.fundingPaise)} per g`
+                    ? `funding rate ${inr(m.rate.fundingPaise)} per g · set ${String(m.rate.date).slice(0, 10)} on the HQ rate board`
                     : "no rate pair has ever been set for this metal"}
               </div>
             </div>

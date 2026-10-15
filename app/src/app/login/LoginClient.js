@@ -48,6 +48,8 @@ export default function Login({ rate }) {
       setChip({ tone: "warn", text: "Signed out after 30 minutes of inactivity." });
     else if (sp.get("out"))
       setChip({ tone: "ok", text: "Signed out successfully." });
+    else if (sp.get("changed"))
+      setChip({ tone: "ok", text: "Password changed — sign in with the new one." });
   }, []);
 
   async function submit(e) {
@@ -59,7 +61,7 @@ export default function Login({ rate }) {
     }).then(r => r.json()).catch(() => ({ ok: false, reason: "Network problem — try again" }));
 
     if (!r.ok) { setBusy(false); setChip({ tone: r.window ? "warn" : "bad", text: r.reason }); return; }
-    if (r.next === "branch") { setBusy(false); setBranches(r.branches); setEmpId(r.employeeId); setScreen("branch"); return; }
+    if (r.next === "branch") { setBusy(false); setBranches(r.branches); setEmpId(r.ticket); setScreen("branch"); return; }
     setScreen("overlay");
     window.location.href = r.next === "password" ? "/setpw" : "/home";
   }
@@ -68,7 +70,8 @@ export default function Login({ rate }) {
     setBusy(true);
     const r = await fetch("/api/auth/branch", {
       method: "POST", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ employeeId: empId, branchId: id, keep }),
+      // E28: empId now holds the login TICKET, never a bare employee id
+      body: JSON.stringify({ ticket: empId, branchId: id, keep }),
     }).then(r => r.json()).catch(() => ({ ok: false, reason: "Network problem — try again" }));
     if (!r.ok) { setBusy(false); setChip({ tone: "bad", text: r.reason }); return; }
     setScreen("overlay");
@@ -175,7 +178,7 @@ export default function Login({ rate }) {
             ? <>
                 <div style={S.ratePill}>{rate.display}</div>
                 <div style={{ color: "#5f8f7b", fontSize: 10.5, fontWeight: 600, marginTop: 4 }}>
-                  today's rate · published {rate.at}</div>
+                  today's funding rate (24K) · {rate.at}</div>
               </>
             : <div style={S.warnPill}>rate not published — lending locked</div>}
         </div>

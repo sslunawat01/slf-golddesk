@@ -1,4 +1,4 @@
-import { kycStatus, blacklistState, mayLend, fullName, isMobile, isAadhaar, isPan, isGst,
+import { ageOn, underAge, kycStatus, blacklistState, mayLend, fullName, isMobile, isAadhaar, isPan, isGst,
          isIfsc, isPincode, bankPayable, validateNewCustomer, rankSearch } from "../src/lib/customer.js";
 
 let pass = 0, fail = 0;
@@ -62,8 +62,10 @@ console.log("\n§4 Field formats");
 console.log("\n§5 Bank payability (R19)");
 {
   eq("penny-drop verified is payable", bankPayable({ verifiedAt: "2026-07-01" }).ok, true);
-  eq("cheque fallback is payable", bankPayable({ verifyMethod: "cheque_photo", chequeFileId: 9 }).ok, true);
-  eq("unverified refused", bankPayable({ verifyMethod: "none" }).ok, false);
+  // E29: one meaning of verified — the database's (verified_at). A cheque
+  // photo is evidence for the ceremony, not verification itself.
+  eq("cheque photo alone is NOT verified (E29)", bankPayable({ verifyMethod: "cheque_photo", chequeFileId: 9 }).ok, false);
+  eq("unverified is not verified", bankPayable({ verifyMethod: "none" }).ok, false);
   eq("cheque claimed without photo refused", bankPayable({ verifyMethod: "cheque_photo" }).ok, false);
 }
 
@@ -121,10 +123,13 @@ console.log("\n§6 New-customer validation — the frozen 5-tab form");
      ["live photo"]);
 
   // banks live in the documents tab
-  eq("unverified bank blocks under documents",
+  eq("unverified bank no longer blocks saving (E29)",
      validateNewCustomer({ ...aadhaarRoute,
-       banks: [{ ifsc: "KKBK0001896", accountNo: "999", holderName: "Sunita" }] }).missing.documents,
-     ["account 1: verify/cheque"]);
+       banks: [{ ifsc: "KKBK0001896", accountNo: "999", holderName: "Sunita" }] }).ok, true);
+  eq("…but a bad IFSC still blocks",
+     validateNewCustomer({ ...aadhaarRoute,
+       banks: [{ ifsc: "KKBK1", accountNo: "999", holderName: "Sunita" }] }).missing.documents,
+     ["account 1: IFSC"]);
   eq("verified bank passes",
      validateNewCustomer({ ...aadhaarRoute, banks: [{ ifsc: "KKBK0001896", accountNo: "999",
        holderName: "Sunita", verifiedAt: "2026-07-27" }] }).ok, true);
@@ -183,6 +188,27 @@ console.log("\n§8 Enum values must never carry display capitalisation");
   eq("'Male' becomes 'male'", norm("Male", GENDER), "male");
   eq("'Corporate' becomes 'corporate'", norm("Corporate", TYPE), "corporate");
   eq("'Trust / society' is not a value", norm("Trust / society", TYPE), null);
+}
+
+
+// ═════ E32 №10 (owner, 15 Oct 2026): age ═════
+{
+  const T = "2026-10-15";
+  eq("age: birthday tomorrow → still 17", ageOn("2008-10-16", T), 17);
+  eq("age: 18th birthday today → 18", ageOn("2008-10-15", T), 18);
+  eq("age: partial date → null", ageOn("2008-10", T), null);
+  eq("underAge: 17 → true", underAge("2008-10-16", T), true);
+  eq("underAge: 18 today → false", underAge("2008-10-15", T), false);
+  eq("underAge: impossible 130 years → true", underAge("1890-01-01", T), true);
+  const base = { firstName: "A", lastName: "B", gender: "male", custType: "individual", aadhaar: "123456789012",
+    aadhaarVerified: true, photoFileId: 1, mobile: "9876543210", current: { line1: "x", pincode: "422101" },
+    sameAsCurrent: true, nominee: { name: "N", relation: "son" }, maxOpenLoans: 3, maxOutstandingPaise: 100 };
+  const minor = validateNewCustomer({ ...base, dob: "2010-01-01", today: T });
+  eq("a 16-year-old is refused on identity", minor.missing.identity.some(x => /18 years/.test(x)), true);
+  const adult = validateNewCustomer({ ...base, dob: "1990-01-01", today: T });
+  eq("an adult passes the age rule", adult.missing.identity.some(x => /18 years/.test(x)), false);
+  const firm = validateNewCustomer({ ...base, custType: "corporate", dob: "2020-01-01", today: T, gstin: "27AAAAA0000A1Z5" });
+  eq("a firm's incorporation date is not an age", firm.missing.identity.some(x => /18 years/.test(x)), false);
 }
 
 console.log(`\n${pass} passed · ${fail} failed`);

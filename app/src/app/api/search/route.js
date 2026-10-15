@@ -17,7 +17,8 @@ export async function GET(req) {
 
   const loans = await q(
     `SELECT l.id, l.loan_no AS "loanNo", l.principal_paise AS "principalPaise", l.disbursed_at AS "disbursedAt",
-            c.id AS "customerId", c.full_name AS "customerName", s.code AS scheme, b.code AS "branchCode"
+            c.id AS "customerId", c.full_name AS "customerName", s.code AS scheme, b.code AS "branchCode",
+            c.cust_no AS "custNo", c.warning_remark AS "warningRemark", c.blacklist_remark AS "blacklistRemark"
        FROM loan l JOIN customer c ON c.id = l.customer_id
        JOIN scheme_version sv ON sv.id = l.scheme_version_id JOIN scheme s ON s.id = sv.scheme_id
        JOIN branch b ON b.id = l.branch_id
@@ -27,6 +28,7 @@ export async function GET(req) {
   const customers = await q(
     `SELECT c.id, c.cust_no AS "custNo", c.full_name AS "fullName", c.mobile,
             c.kyc_done_at AS "kycDoneAt", c.is_blacklisted AS "isBlacklisted",
+            c.warning_remark AS "warningRemark", c.blacklist_remark AS "blacklistRemark",
             (SELECT count(*) FROM loan WHERE customer_id = c.id AND status = 'active')::int AS "openLoans",
             COALESCE((SELECT sum(principal_paise) FROM loan WHERE customer_id = c.id AND status = 'active'),0)::bigint AS "outPaise"
        FROM customer c

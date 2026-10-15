@@ -3,6 +3,7 @@ import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { one, tx, audit } from "@/lib/db.js";
 import { validContact, validAddress, validNominee, diffFields } from "@/lib/editcust.js";
+import { underAge } from "@/lib/customer.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -28,6 +29,35 @@ export async function POST(req, { params }) {
 
   const b = await req.json().catch(() => ({}));
 
+  // E32 №5 (owner, 15 Oct 2026): warning / blacklist remarks. A warning is an
+  // edit-customer right; a blacklist is its own granted permission. Clearing
+  // a remark is the same right as setting it. Everything is audited.
+  if (b.action === "remarks") {
+    const warn = String(b.warningRemark ?? "").trim().slice(0, 500) || null;
+    const black = String(b.blacklistRemark ?? "").trim().slice(0, 500) || null;
+    const full = await one(`SELECT warning_remark, blacklist_remark FROM customer WHERE id=$1`, [cust.id]);
+    const warnChanged = warn !== (full.warning_remark || null);
+    const blackChanged = black !== (full.blacklist_remark || null);
+    if (blackChanged && !can(actor, "blacklist", { need: "full" }).ok)
+      return NextResponse.json({ ok: false,
+        reason: "You may not blacklist or un-blacklist a customer — ask for the Blacklist permission" }, { status: 403 });
+    if (!warnChanged && !blackChanged) return NextResponse.json({ ok: true, unchanged: true });
+    await tx(async (cl) => {
+      if (warnChanged) await cl.query(
+        `UPDATE customer SET warning_remark=$2, warning_set_by=$3, warning_set_at=now(), updated_by=$3 WHERE id=$1`,
+        [cust.id, warn, actor.employeeId]);
+      if (blackChanged) await cl.query(
+        `UPDATE customer SET blacklist_remark=$2, blacklist_set_by=$3, blacklist_set_at=now(), updated_by=$3 WHERE id=$1`,
+        [cust.id, black, actor.employeeId]);
+      await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+        table: "customer", entityId: cust.id,
+        action: blackChanged ? (black ? "customer_blacklisted" : "customer_unblacklisted") : "customer_warning_set",
+        before: { warningRemark: full.warning_remark, blacklistRemark: full.blacklist_remark },
+        after: { warningRemark: warn, blacklistRemark: black } });
+    }, { entityIds: actor.entityIds });
+    return NextResponse.json({ ok: true, warningRemark: warn, blacklistRemark: black });
+  }
+
   if (b.action === "full") {
     // D-F (owner, 29 Aug 2026): the full-field edit — every creation field,
     // same screen, same duplicate ceremonies. Banks are NOT touched here
@@ -41,6 +71,8 @@ export async function POST(req, { params }) {
     if (last.length < 2) probs.push("Last name is compulsory");
     if (!/^[6-9]\d{9}$/.test(mobile)) probs.push("Mobile must be a 10-digit number starting 6-9");
     if (!b.dob) probs.push("Date of birth is compulsory");
+    else if (b.custType !== "corporate" && underAge(String(b.dob).slice(0, 10), new Date().toISOString().slice(0, 10)))
+      probs.push("The customer must be 18 or older (E32 №10)");
     if (!b.gender) probs.push("Gender is compulsory");
     const va2 = validAddress(b.current || {});
     if (!va2.ok) probs.push(...va2.problems.map(x => "Current address: " + x));
@@ -169,20 +201,36 @@ export async function POST(req, { params }) {
           const holder2 = String(bk.holderName || "").trim();
           const chq = Number(bk.chequeFileId) || null;
           if (bk.id) {
+            // E28 (14 Oct 2026) — SECURITY: THE RULE WITH TEETH applies here too.
+            // This path used to change account_no/ifsc while KEEPING verified_at,
+            // and the payout trigger only checks verified_at — so a verified
+            // account could be swapped for any other and the next disbursement
+            // paid into it, with nothing in the audit. Changing the number or
+            // IFSC now clears verification exactly as the bank-only route does,
+            // and an old cheque photo no longer vouches for a new number.
+            const { rows: [cur] } = await cl.query(
+              `SELECT account_no, ifsc FROM customer_bank_account
+                WHERE id=$1 AND customer_id=$2 FOR UPDATE`, [Number(bk.id), cust.id]);
+            if (!cur) continue;
+            const identityChanged = cur.account_no !== accNo || cur.ifsc !== ifsc2;
             await cl.query(
               `UPDATE customer_bank_account
                   SET bank=$3, bank_branch=$4, account_no=$5, ifsc=$6, holder_name=$7,
                       acct_type=$8, upi_id=$9,
-                      cheque_file_id=COALESCE($10, cheque_file_id),
-                      verify_method = CASE
-                        WHEN verified_at IS NOT NULL AND COALESCE($10, cheque_file_id) IS NOT NULL
-                          THEN 'cheque_photo'::verify_method
-                        WHEN verified_at IS NULL AND COALESCE($10, cheque_file_id) IS NOT NULL
-                          THEN 'cheque_photo'::verify_method
+                      cheque_file_id = CASE WHEN $11 THEN $10 ELSE COALESCE($10, cheque_file_id) END,
+                      verified_at    = CASE WHEN $11 THEN NULL ELSE verified_at END,
+                      verify_method  = CASE
+                        WHEN $11 THEN 'none'::verify_method   -- same as the bank-only route
+                        WHEN COALESCE($10, cheque_file_id) IS NOT NULL THEN 'cheque_photo'::verify_method
                         ELSE verify_method END
                 WHERE id=$1 AND customer_id=$2`,
               [Number(bk.id), cust.id, bk.bank || "—", bk.bankBranch || null, accNo, ifsc2,
-               holder2 || "—", bk.acctType || null, bk.upiId || null, chq]);
+               holder2 || "—", bk.acctType || null, bk.upiId || null, chq, identityChanged]);
+            if (identityChanged)
+              await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
+                table: "customer_bank_account", entityId: Number(bk.id), action: "edit_full",
+                before: { accountNo: cur.account_no, ifsc: cur.ifsc },
+                after: { accountNo: accNo, ifsc: ifsc2, verificationCleared: true } });
           } else {
             await cl.query(
               `INSERT INTO customer_bank_account (customer_id, bank, bank_branch, account_no,

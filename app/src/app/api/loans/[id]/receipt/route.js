@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { one, tx, issueNumber, audit } from "@/lib/db.js";
-import { dues, applyPayment } from "@/lib/engine.js";
+import { dues, applyPayment, interestCoverage } from "@/lib/engine.js";
 import { chargeSnapshot, appropriationRows, cashCapCheck, utrCheck, ENGINE_VERSION }
   from "@/lib/loanstate.js";
 import { loadPosition } from "../dues/route.js";
@@ -71,7 +71,9 @@ export async function POST(req, { params }) {
            FROM receipt r JOIN loan l ON l.id = r.loan_id
           WHERE l.customer_id = $1 AND r.mode = 'cash' AND r.business_date = CURRENT_DATE`,
         [pos.loan.customer_id]);
-      const cap = cashCapCheck({ alreadyTodayPaise: Number(cashToday.paise), amountPaise });
+      const capRow = await one(`SELECT value FROM app_setting WHERE key='cash_receipt_day_max_paise'`);
+      const cap = cashCapCheck({ alreadyTodayPaise: Number(cashToday.paise), amountPaise,
+        capPaise: Number(capRow?.value ?? 20000000) });
       if (!cap.ok) return NextResponse.json({ ok: false, reason: cap.reason }, { status: 400 });
     }
 
@@ -142,9 +144,11 @@ export async function POST(req, { params }) {
       return { receiptId: Number(r.id), receiptNo };
     }, { entityIds: actor.entityIds });
 
+    // E36: where the interest clock stands after this receipt (paid up to / still due)
+    const coverageAfter = closes ? null : interestCoverage(pos.scheme, pos.state, today);
     return NextResponse.json({ ok: true, ...out, closes,
       sealsCycle: !!receipt.sealsCycle, appropriation: receipt.appropriation,
-      principalAfter: receipt.principalAfter });
+      principalAfter: receipt.principalAfter, coverageAfter });
   } catch (e) {
     console.error("[receipt] failed", e);
     return NextResponse.json({ ok: false,

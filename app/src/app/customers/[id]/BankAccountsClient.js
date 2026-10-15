@@ -30,7 +30,12 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
     setBusy(true); setChip(null);
     const r = await fetch(`/api/customers/${customerId}/banks`, { method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify(form.id ? { action: "edit", ...form } : form) })
+      // E28: the form keeps PhotoInput's {fileId, preview} object for the
+      // preview; the server takes the id (Number(object) was null → photo lost)
+      body: JSON.stringify((() => {
+        const out = { ...form, chequeFileId: form.chequeFileId?.fileId ?? form.chequeFileId ?? null };
+        return form.id ? { action: "edit", ...out } : out;
+      })()) })
       .then(x => x.json()).catch(() => ({ ok: false, reason: "Cannot reach the server" }));
     setBusy(false);
     if (!r.ok) { setChip({ tone: "bad", text: r.reason }); return; }
@@ -54,7 +59,7 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
           </div>
           <div style={{ display: "flex", gap: 7, alignItems: "center", flexShrink: 0 }}>
             <span className={"chip " + (a.verifiedAt ? "ok" : "warn")}
-              title={a.verifiedAt ? "verified — payouts allowed" : "unverified — no payouts until verified"}>
+              title={a.verifiedAt ? "verified — payouts allowed" : "unverified — a payout needs a signed confirmation (E29)"}>
               {a.verifiedAt ? "verified" : "unverified"}</span>
             <button className="btn ghost" style={{ padding: "5px 11px", fontSize: 12 }}
               onClick={() => { setView(a); setConfirmVerify(null); }}>View</button>
@@ -86,7 +91,7 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
             <div><b>Holder</b><br />{view.holderName}{view.acctType ? ` · ${view.acctType}` : ""}</div>
             <div><b>Status</b><br />
               <span className={"chip " + (view.verifiedAt ? "ok" : "warn")}>
-                {view.verifiedAt ? "verified" : "unverified — no payouts"}</span></div>
+                {view.verifiedAt ? "verified" : "unverified — payout needs a confirmation"}</span></div>
           </div>
           {/* E20 №4: VIEW is view-only — the gallery, nothing touchable */}
           <div style={{ marginTop: 12, display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
@@ -156,7 +161,8 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
                   if (!fid) return;
                   const r = await fetch(`/api/customers/${customerId}/banks`, {
                     method: "POST", headers: { "content-type": "application/json" },
-                    body: JSON.stringify({ action: "proof", id: form.id, chequeFileId: fid }),
+                    // E28: PhotoInput returns {fileId, preview, kb} — send the id, not the object
+                    body: JSON.stringify({ action: "proof", id: form.id, chequeFileId: fid?.fileId ?? fid }),
                   }).then(x => x.json()).catch(() => ({ ok: false }));
                   if (r.ok) window.location.reload();
                 }} />)}
@@ -182,7 +188,7 @@ export default function BankAccountsClient({ customerId, accounts, mayEdit }) {
               label="Cancelled cheque / passbook photo"
               hint="Take or upload one photo — it stays attached to this account and backs the verification"
               value={form.chequeFileId}
-              onChange={(id) => setForm({ ...form, chequeFileId: id })} />}
+              onChange={(v) => setForm({ ...form, chequeFileId: v })} />}
           </div>
           {identityChanged && (
             <div style={{ marginTop: 10 }}>

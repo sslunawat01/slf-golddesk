@@ -30,7 +30,7 @@ export async function GET() {
       ORDER BY p.metal_id, p.purity_pct DESC`);
   const rates = await q(
     `SELECT DISTINCT ON (metal_id) metal_id, base_paise, funding_paise, rate_date
-       FROM daily_rate ORDER BY metal_id, rate_date DESC`);
+       FROM daily_rate ORDER BY metal_id, rate_date DESC, published_at DESC`);
   const enumKinds = (await one(`SELECT enum_range(NULL::metal_kind)::text[] AS kinds`)).kinds;
 
   return NextResponse.json({ ok: true,

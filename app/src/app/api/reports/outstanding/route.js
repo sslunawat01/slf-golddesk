@@ -27,7 +27,7 @@ export async function GET(req) {
 
     const out = rows.map(r => {
       const p = r.dues._paise;
-      const principalOut = Math.round(r.state.principal * 100);
+      const principalOut = Number(r.state.principal);   // state.principal is ALREADY paise (E27b)
       return {
         branch: `${r.loan.branch_code} ${r.loan.branch_name}`,
         loanNo: r.loan.loan_no,

@@ -49,7 +49,6 @@ export default function ApprovalsClient({ waiting, decided, meId }) {
               <Cell k="Branch" v={`${a.branch_code} · ${a.branch_name}`} />
               <Cell k="Scheme" v={`${a.scheme} · fund ${a.funding_pct}%`} />
               <Cell k="Gold" v={`${g(a.net_mg)} g · ${a.item_count} item(s)`} />
-              <Cell k="Market value" v={inr(a.market_paise)} />
               <Cell k="Funding value" v={inr(a.funding_paise)} brass />
               <Cell k="Purpose" v={a.purpose} />
               <Cell k="Valuers" v={[a.valuer1, a.valuer2].filter(Boolean).join(" + ") || "—"} />

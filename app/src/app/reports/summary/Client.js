@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ReportFrame, ReportHeader, Bar, StdFilters, Tbl, ScopeLine,
-         downloadCsv, useReport, inrP, dmyS, gm } from "../shared.js";
+         downloadCsv, useReport, inrP, gm } from "../shared.js";
 
 export default function SummaryClient({ fyOptions, fyCurrent, branches }) {
   const [f, setF] = useState({ fy: fyCurrent, from: "", to: "", branch: "all" });
@@ -15,8 +15,8 @@ export default function SummaryClient({ fyOptions, fyCurrent, branches }) {
     { key: "closedCount", label: "Closed", num: true, total: "sum" },
     { key: "closedPaise", label: "Closed ₹", num: true, fmt: inrP, total: "sum" },
     { key: "activeCount", label: "Active", num: true, total: "sum" },
-    { key: "outstandingFrom", label: "O/s Loans From", fmt: dmyS, csv: v => v || "" },
-    { key: "outstandingTo", label: "O/s Loans To", fmt: dmyS, csv: v => v || "" },
+    { key: "osStartPaise", label: "O/s at Period Start ₹", num: true, fmt: inrP, total: "sum" },
+    { key: "osEndPaise", label: "O/s at Period End ₹", num: true, fmt: inrP, total: "sum" },
     { key: "activePrincipalPaise", label: "Principal O/s ₹", num: true, fmt: inrP, total: "sum" },
     { key: "activeInterestPaise", label: "Interest Due ₹", num: true, fmt: inrP, total: "sum" },
     { key: "activeChargesPaise", label: "Penal+Chg Due ₹", num: true, fmt: inrP, total: "sum" },

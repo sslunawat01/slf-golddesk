@@ -4,6 +4,7 @@ import { currentActor } from "@/lib/session.js";
 import Shell from "@/components/Shell.js";
 import { visibleDesks, sanctionAuthority, can } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
+import { dueSummary } from "@/lib/followups-db.js";
 
 export const dynamic = "force-dynamic";
 const inr = (p) => "₹" + Math.round(p / 100).toLocaleString("en-IN");
@@ -65,6 +66,11 @@ export default async function Home() {
   const day = await one(
     `SELECT begin_signed_at, end_signed_at FROM day_cycle
       WHERE branch_id=$1 AND business_date=CURRENT_DATE`, [actor.actingBranchId]);
+  // E33: follow-ups due today at this branch (DB day) — a work queue, hidden when empty
+  let fu = null;
+  if (desks.overdue) {
+    try { fu = await dueSummary(actor.actingBranchId, actor.employeeId); } catch { fu = null; }
+  }
 
   const deskLabels = {
     counterHome: "Counter", overdue: "Overdue", dayCycle: "Day begin/end",
@@ -163,6 +169,35 @@ export default async function Home() {
                 )}
               </div>);
           })}
+        </div>)}
+
+      {fu && fu.total > 0 && (
+        <div className="card" data-fu-home style={{ marginBottom: 16, borderLeft: "5px solid var(--brass)" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline",
+            gap: 10, flexWrap: "wrap" }}>
+            <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em",
+              textTransform: "uppercase", color: "var(--mut)" }}>
+              ☎ Follow-ups due today · {fu.total}</div>
+            <div style={{ fontSize: 11.5, color: "var(--mut)" }}>
+              {fu.mine} mine{fu.missed > 0 ? <> · <b style={{ color: "var(--bad)" }}>{fu.missed} missed</b></> : null}</div>
+          </div>
+          {fu.top.map((r, i) => (
+            <div key={r.loanId} style={{ display: "flex", alignItems: "center", gap: 12,
+              flexWrap: "wrap", padding: "10px 2px",
+              borderTop: i ? "1px solid var(--line)" : "1px solid transparent", marginTop: i ? 0 : 6 }}>
+              <div style={{ minWidth: 0, flex: "1 1 220px" }}>
+                <b>{r.customer}</b>
+                <span className="mono" style={{ color: "var(--mut)", fontSize: 12, marginLeft: 8 }}>{r.loanNo}</span>
+                <div style={{ color: "var(--mut)", fontSize: 12.5, marginTop: 2 }}>
+                  {r.typeLabel} ·{" "}
+                  <span style={{ color: r.status.state === "missed" ? "var(--bad)" : "inherit", fontWeight: r.status.state === "missed" ? 700 : 400 }}>
+                    {r.status.state === "missed" ? `missed — was due ${dmy(r.dueOn)}` : "due today"}</span></div>
+              </div>
+              <a href={`/followups?focus=${r.loanId}`} className="btn green"
+                style={{ fontSize: 13, padding: "8px 14px", textDecoration: "none" }}>Log →</a>
+            </div>))}
+          <div style={{ marginTop: 10, fontSize: 13 }}>
+            <a href="/followups">{fu.total > fu.top.length ? `All ${fu.total} in the Follow-ups tab →` : "Open the Follow-ups tab →"}</a></div>
         </div>)}
 
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 14 }}>

@@ -16,7 +16,21 @@
 import { openLoan, addCharge, applyPayment, validateScheme } from "./engine.js";
 
 /** Stamped on every receipt so a future engine change stays traceable. */
-export const ENGINE_VERSION = "1.1.0"; // R-L both-days counting (owner 28 Aug 2026)
+export const ENGINE_VERSION = "1.2.0"; // R-I penal clock = interest-unpaid period (owner 15 Oct 2026)
+
+/**
+ * Which penal rule a stored receipt was priced under. Receipts are facts: one
+ * taken under engine 1.1.x was appropriated on the loan-age clock and must
+ * replay that way, or its stored split would not reproduce. Anything newer —
+ * and anything with no version, i.e. a payment being priced right now — uses
+ * today's rule.
+ */
+export function penalRuleFor(engineVersion) {
+  const m = /^(\d+)\.(\d+)/.exec(String(engineVersion || ""));
+  if (!m) return "unpaid_interest";
+  const major = Number(m[1]), minor = Number(m[2]);
+  return (major < 1 || (major === 1 && minor < 2)) ? "loan_age" : "unpaid_interest";
+}
 
 /** The engine rounds to ₹10. A scheme that says otherwise must not be guessed at. */
 const ROUND_STEP_PAISE = 1000;
@@ -75,7 +89,7 @@ export function buildEvents(charges = [], receipts = []) {
   for (const r of receipts)
     evs.push({ at: String(r.business_date), seq: 1, type: "payment",
       date: String(r.business_date), amount: Number(r.amount_paise) / 100,
-      closing: !!r.closes_loan });
+      closing: !!r.closes_loan, penalRule: penalRuleFor(r.engine_version) });
   evs.sort((a, b) => a.at === b.at ? a.seq - b.seq : (a.at < b.at ? -1 : 1));
   return evs;
 }
@@ -84,7 +98,8 @@ export function buildEvents(charges = [], receipts = []) {
  * Replay a loan into its current engine state.
  *
  * `charges` are loan_charge rows still live (removed_at IS NULL), each carrying
- * `added_on` as a date string. `receipts` are receipt rows in any order.
+ * `added_on` as a date string. `receipts` are receipt rows in any order, each
+ * carrying its `engine_version` so it replays under the rule it was priced with.
  *
  * The engine's charge id is the loan_charge id, so an appropriation written
  * afterwards can point at the exact charge row it settled.
@@ -93,7 +108,8 @@ export function replayLoan({ principalPaise, disbursedAt, scheme, charges = [], 
   const state = openLoan({ principal: Number(principalPaise) / 100, disbursedAt: String(disbursedAt) });
   for (const ev of buildEvents(charges, receipts)) {
     if (ev.type === "charge") addCharge(state, { id: ev.id, amount: ev.amount });
-    else applyPayment(scheme, state, { date: ev.date, amount: ev.amount, closing: ev.closing });
+    else applyPayment(scheme, state, { date: ev.date, amount: ev.amount, closing: ev.closing,
+                                       penalRule: ev.penalRule });
   }
   return state;
 }
@@ -136,11 +152,14 @@ export function appropriationRows(before, state, receipt) {
 /** Cash from one customer, one day, is capped at ₹2,00,000 (Sec 269ST). */
 export const CASH_DAY_CAP_PAISE = 20000000;
 
-export function cashCapCheck({ alreadyTodayPaise = 0, amountPaise = 0 }) {
+export function cashCapCheck({ alreadyTodayPaise = 0, amountPaise = 0, capPaise = CASH_DAY_CAP_PAISE }) {
   const total = Number(alreadyTodayPaise) + Number(amountPaise);
-  if (total > CASH_DAY_CAP_PAISE)
+  // E32 №6: the cap is a setting (owner override); the legal figure is the default
+  if (total > capPaise)
     return { ok: false,
-      reason: "Cash from one customer is capped at ₹2,00,000 in a day (Sec 269ST) — " +
+      reason: (capPaise === CASH_DAY_CAP_PAISE
+        ? "Cash from one customer is capped at ₹2,00,000 in a day (Sec 269ST) — "
+        : `Cash from one customer is capped at ₹${(capPaise / 100).toLocaleString("en-IN")} in a day (Settings · Limits) — `) +
               "take the balance by UPI or bank transfer" };
   return { ok: true };
 }

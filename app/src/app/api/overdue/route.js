@@ -120,12 +120,16 @@ export async function POST(req) {
 
   try {
     await tx(async (cl) => {
+      // E33: the legacy overdue form still writes the same table — give its row
+      // the channel the new Follow-ups screens read (positional params at the END)
+      const channel = /visit|walked/i.test(v.method) ? "visit" : /whatsapp/i.test(v.method) ? "whatsapp"
+        : /sms/i.test(v.method) ? "sms" : /post|courier/i.test(v.method) ? "notice" : "call";
       await cl.query(
         `INSERT INTO collection_call (loan_id, method, outcome, ptp_date, next_follow_up,
-           note, by_employee)
-         VALUES ($1,$2,$3::call_outcome,$4,$5,$6,$7)`,
+           note, by_employee, channel, next_type)
+         VALUES ($1,$2,$3::call_outcome,$4,$5,$6,$7,$8::followup_channel,$9::followup_type)`,
         [loan.id, v.method, v.outcome, v.ptpDate, v.nextFollowUp, v.narration,
-         actor.employeeId]);
+         actor.employeeId, channel, v.nextFollowUp ? (v.outcome === "promised" ? "ptp" : "other") : null]);
       await audit(cl, { employeeId: actor.employeeId, branchId: actor.actingBranchId,
         table: "collection_call", entityId: loan.id, action: "follow_up",
         after: { loanNo: loan.loan_no, method: v.method, outcome: v.outcome,

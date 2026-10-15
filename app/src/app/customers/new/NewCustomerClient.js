@@ -2,7 +2,7 @@
 import { useState, useMemo } from "react";
 import DateInput from "@/components/DateInput.js";
 import PhotoInput from "@/components/PhotoInput.js";
-import { validateNewCustomer, blacklistState, isMobile, isAadhaar, isPan, isGst,
+import { ageOn, validateNewCustomer, blacklistState, isMobile, isAadhaar, isPan, isGst,
          isIfsc, isPincode } from "@/lib/customer.js";
 import { formatAadhaar, cleanAadhaar, formatPan, formatMobile, cleanDigits, formatIfsc , titleCaseName } from "@/lib/format.js";
 import TopNotice from "@/app/ui/TopNotice.js";
@@ -216,8 +216,14 @@ export default function NewCustomerClient({ docTypes, prefill, mode = "create",
             <F label="Last name *"><input className="i" value={c.lastName}
               onChange={e => set({ lastName: e.target.value })}
               onBlur={e => set({ lastName: titleCaseName(e.target.value) })} /></F>
-            <F label="Date of birth *"><DateInput value={c.dob}
-              onChange={v => set({ dob: v })} /></F>
+            <F label={"Date of birth *" + (ageOn(c.dob, new Date().toISOString().slice(0, 10)) != null
+                ? ` · age ${ageOn(c.dob, new Date().toISOString().slice(0, 10))}` : "")}>
+              <DateInput value={c.dob} onChange={v => set({ dob: v })} />
+              {/* E32 №10 (owner, 15 Oct 2026): nobody under 18 becomes a customer */}
+              {c.dob && c.custType !== "corporate" && ageOn(c.dob, new Date().toISOString().slice(0, 10)) != null
+                && ageOn(c.dob, new Date().toISOString().slice(0, 10)) < 18 && (
+                <div style={{ marginTop: 6 }}><span className="chip bad">under 18 — cannot be a customer</span></div>)}
+            </F>
             <F label="Gender *"><select className="i" value={c.gender}
               onChange={e => set({ gender: e.target.value })}>
               <option value="">— select —</option>

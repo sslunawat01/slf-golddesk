@@ -1,6 +1,7 @@
 "use client";
 import { useState, useMemo } from "react";
 import PhotoInput from "@/components/PhotoInput.js";
+import RemarkPopup from "@/components/RemarkPopup.js";
 import { ornamentValue, appraisalTotals, validPrincipal, valuerRule,
          disbursementPlan, docCharge, inr, bankRemainder } from "@/lib/valuation.js";
 import TopNotice from "@/app/ui/TopNotice.js";
@@ -11,18 +12,21 @@ const mg = (grams) => Math.round(Number(grams || 0) * 1000);
 export default function WizardClient({ app, customer, items, purities, schemes, itemMaster, valuers,
                                        banks, slfAccounts, ceilingPaise, rates = {},
                                        valuer2Threshold, canDisburse, youApproved = false, metals = [], ratedMetalId = 1,
-                                       mayAppraise = true, sentBack = null, isCreator = false }) {
+                                       mayAppraise = true, sentBack = null, isCreator = false,
+                                       cashCapPaise = 2000000 }) {
   // №9 (owner, 29 Aug 2026): even an approved file opens at tab 1 — the
   // disbursing person reviews front-to-back and ENDS at Disburse.
   const [step, setStep] = useState(app.status === "pending_ho" ? 2 : 1);
   const [sendBack, setSendBack] = useState(null);   // №11: null | { note } — the send-back box
   const [rows, setRows] = useState(items.length
-    ? items.map(r => ({ ...r, metalId: String(purities.find(p => String(p.id) === String(r.purityId))?.metalId || ratedMetalId) }))
+    ? items.map(r => ({ ...r, net: (Math.max(0, Number(r.gross) - Number(r.stone))).toFixed(3),
+        metalId: String(purities.find(p => String(p.id) === String(r.purityId))?.metalId || ratedMetalId) }))
     : [newRow()]);
   const [photos, setPhotos] = useState(app.ornamentPhotos || []);
   const [schemeId, setSchemeId] = useState(app.schemeVersionId || "");
   const [amount, setAmount] = useState(app.requestedPaise ? String(app.requestedPaise / 100) : "");
   const [purpose, setPurpose] = useState(app.purpose || "personal");
+  const [remark, setRemark] = useState(app.remark || "");                 // E32 №4
   const [present, setPresent] = useState(app.borrowerPresent ?? true);
   // E21 №3/№4 (owner, 29 Aug 2026): the party photos saved at creation come
   // BACK — before this, reopening forgot them and the next save erased them.
@@ -49,8 +53,47 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
   const ro = !mayAppraise ||
     !(["draft", "appraised"].includes(status) || (status === "approved" && isCreator));
   const [done, setDone] = useState(null);
+  const [unv, setUnv] = useState(null);   // E29: { accounts, extra } — the unverified-payout pop-up
+  const [vnow, setVnow] = useState({});   // E29b: account id → true once verified from the pop-up
+  const [proof, setProof] = useState({}); // E29b: account id → uploaded photo {fileId, preview}
+  const [vbusy, setVbusy] = useState(null);
+  const [verr, setVerr] = useState(null);
 
-  function newRow() { return { itemId: "", metalId: String(ratedMetalId), qty: 1, gross: "", stone: "0", purityId: "", narration: "" }; }
+  /** E29b (owner, 14 Oct 2026): verify FROM the pop-up by document — the same
+   *  two actions the customer page uses (attach proof → mark verified), so a
+   *  verification here is identical to one made there, audited the same way. */
+  async function verifyByDocument(accountId) {
+    const ph = proof[accountId];
+    if (!ph?.fileId) return;
+    setVbusy(accountId); setVerr(null);
+    const post = (body) => fetch(`/api/customers/${customer.id}/banks`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    }).then(async r => (await r.json().catch(() => null)) ?? { ok: false, reason: `Server error ${r.status}` })
+      .catch(() => ({ ok: false, reason: "Cannot reach the server" }));
+    const a = await post({ action: "proof", id: accountId, chequeFileId: ph.fileId });
+    const v = a.ok ? await post({ action: "verify", id: accountId }) : a;
+    setVbusy(null);
+    if (!v.ok) { setVerr({ id: accountId, text: v.reason }); return; }
+    setVnow(m => ({ ...m, [accountId]: true }));
+  }
+
+  function newRow() { return { itemId: "", metalId: String(ratedMetalId), qty: 1, gross: "", stone: "0", net: "", purityId: "", narration: "" }; }
+  /**
+   * E32 №3 (owner, 15 Oct 2026): gross, stone and net are ALL typed; whichever
+   * was typed last wins and the other two follow, in grams to 3 decimals:
+   *   gross typed → net = gross − stone      stone typed → net = gross − stone
+   *   net typed   → stone = gross − net (gross known) · else gross = net + stone
+   * Nothing goes below zero.
+   */
+  function weights(r, field, value) {
+    const v = value.replace(/[^\d.]/g, "");
+    const n = (x) => Math.max(0, Number(x || 0));
+    const f3 = (x) => (Math.round(Math.max(0, x) * 1000) / 1000).toFixed(3);
+    if (field === "gross") return { gross: v, net: v === "" ? "" : f3(n(v) - n(r.stone)), stone: n(r.stone) > n(v) ? "0.000" : r.stone };
+    if (field === "stone") return { stone: v, net: r.gross === "" ? r.net : f3(n(r.gross) - n(v)) };
+    if (r.gross !== "" && n(v) <= n(r.gross)) return { net: v, stone: f3(n(r.gross) - n(v)) };
+    return { net: v, gross: v === "" ? r.gross : f3(n(v) + n(r.stone)) };
+  }
   const metalName = (id) => metals.find(m => String(m.id) === String(id))?.kind || "gold";
   const forMetal = (list, id) => list.filter(x => String(x.metalId) === String(id));
   const scheme = schemes.find(s => String(s.id) === String(schemeId));
@@ -86,10 +129,10 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   const bankLegs = Object.entries(legs).filter(([, v]) => Number(v) > 0)
     .map(([id, v]) => ({ accountId: Number(id), amountPaise: Math.round(Number(v) * 100),
-      verified: !!banks.find(b => String(b.id) === String(id))?.payable }));
+      verified: !!banks.find(b => String(b.id) === String(id))?.verified }));
   // R-D2 — the customer receives the full sanctioned amount; the charge is collected later.
   const payablePaise = principalPaise;
-  const plan = disbursementPlan({ principalPaise,
+  const plan = disbursementPlan({ cashCapPaise, principalPaise,
     cashPaise: Math.round(Number(cash || 0) * 100), bankLegs });
 
   /** Keying cash re-fills the single ticked bank account with whatever is left. */
@@ -114,7 +157,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
         stoneMg: r.stoneMg, purityId: Number(r.purityId), narration: r.narration })),
       ornamentPhotoIds: photos.map(p => p.fileId),
       schemeVersionId: schemeId ? Number(schemeId) : null,
-      requestedPaise: principalPaise || null, purpose,
+      requestedPaise: principalPaise || null, purpose, remark,
       borrowerPresent: present, presencePhotoId: presencePhoto?.fileId ?? null,
       coborrowerCustomerId: cob.on && cob.picked ? Number(cob.picked.id) : null,
       coborrowerPhotoId: cob.on && cob.picked ? (cobPhoto?.fileId ?? null) : null,
@@ -144,6 +187,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
       return body ?? { ok: false, reason: `Server error ${r.status} — nothing was saved` };
     }).catch(() => ({ ok: false, reason: "Cannot reach the server — check the connection" }));
     setBusy(false);
+    // E29: the server asks for the signed confirmation before paying an
+    // unverified account — show the pop-up, never a red chip
+    if (!r.ok && r.needsUnverifiedConfirm) { setUnv({ accounts: r.accounts || [], extra }); return; }
     if (!r.ok) { setChip({ tone: "bad", text: r.reason }); return; }
     if (action === "submit") {
       // №2 (owner, 29 Aug 2026): the creator's work ends at approval — land on
@@ -177,6 +223,11 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
 
   return (
     <div>
+      {/* E32 №5: the customer's standing remark greets whoever opens the file */}
+      <RemarkPopup entries={[
+        customer.blacklistRemark ? { kind: "blacklist", name: customer.fullName, custNo: customer.custNo, remark: customer.blacklistRemark } : null,
+        customer.warningRemark ? { kind: "warning", name: customer.fullName, custNo: customer.custNo, remark: customer.warningRemark } : null,
+      ].filter(Boolean)} />
       {/* E19 №1 (owner, 29 Aug 2026): leave without touching the file — the
           application stays exactly as it is, undisbursed and alive */}
       <a href={`/customers/${customer.id}`} style={{ display: "inline-block", marginBottom: 10,
@@ -213,10 +264,21 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
       {step === 1 && (
         <fieldset disabled={ro} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="card">
+          {/* E32 №2 (owner, 15 Oct 2026): the scheme comes FIRST — its funding % prices every row */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14,
+            marginBottom: 14, paddingBottom: 14, borderBottom: "1px solid var(--line)" }}>
+            <div><label className="f">Scheme * <span style={{ textTransform: "none", letterSpacing: 0, color: "var(--mut)" }}>— choose before weighing</span></label>
+              <select className="i" value={schemeId} onChange={e => setSchemeId(e.target.value)} data-scheme-first>
+                <option value="">— choose scheme —</option>
+                {schemes.map(s => <option key={s.id} value={s.id}>{s.code} · {s.name || ""} · fund {s.fundingPct}%</option>)}
+              </select></div>
+            {scheme && <div style={{ alignSelf: "end", fontSize: 13.5, color: "var(--mut)" }}>
+              Funding value = {fundingPct}% of the metal value · the amount you may lend</div>}
+          </div>
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13.5, minWidth: 860 }}>
               <thead><tr style={{ color: "var(--mut)", fontSize: 10.5, textAlign: "left" }}>
-                {["ITEM","METAL","QTY","GROSS g","STONE g","NET g","PURITY","MARKET VALUE","FUNDING VALUE",""]
+                {["ITEM","METAL","QTY","GROSS g","STONE g","NET g","PURITY","FUNDING VALUE",""]
                   .map(h => <th key={h} style={{ padding: "6px 8px", whiteSpace: "nowrap" }}>{h}</th>)}
               </tr></thead>
               <tbody>
@@ -236,22 +298,23 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                     <td style={{ padding: 6, width: 70 }}>
                       <input className="i mono" value={r.qty} onChange={e => patch(i, { qty: e.target.value.replace(/\D/g,"") })} /></td>
                     <td style={{ padding: 6, width: 100 }}>
-                      <input className="i mono" value={r.gross} placeholder="0.000"
-                        onChange={e => patch(i, { gross: e.target.value.replace(/[^\d.]/g,"") })} /></td>
+                      <input className="i mono" value={r.gross} placeholder="0.000" aria-label="gross g"
+                        onChange={e => patch(i, weights(r, "gross", e.target.value))} /></td>
                     <td style={{ padding: 6, width: 100 }}>
-                      <input className="i mono" value={r.stone}
-                        onChange={e => patch(i, { stone: e.target.value.replace(/[^\d.]/g,"") })} /></td>
-                    <td style={{ padding: 6 }} className="mono"><b>{g(r.netMg)}</b></td>
+                      <input className="i mono" value={r.stone} aria-label="stone g"
+                        onChange={e => patch(i, weights(r, "stone", e.target.value))} /></td>
+                    <td style={{ padding: 6, width: 100 }}>
+                      <input className="i mono" value={r.net ?? ""} placeholder="0.000" aria-label="net g"
+                        style={{ fontWeight: 800 }}
+                        onChange={e => patch(i, weights(r, "net", e.target.value))} /></td>
                     <td style={{ padding: 6, minWidth: 118 }} className="grid-cell">
                       <select className="i" value={r.purityId} onChange={e => patch(i, { purityId: e.target.value })}>
                         <option value="">— purity —</option>
                         {forMetal(purities, r.metalId).map(p => <option key={p.id} value={p.id}>{p.karat}</option>)}
                       </select></td>
-                    <td style={{ padding: 6 }} className="mono">
-                      {r.unrated ? <span className="chip warn" style={{ fontSize: 11 }}>no {metalName(r.metalId)} rate</span>
-                        : r.marketPaise ? inr(r.marketPaise) : "—"}</td>
                     <td style={{ padding: 6, color: "#a8791f", fontWeight: 800 }} className="mono">
-                      {r.fundingPaise ? inr(r.fundingPaise) : "—"}</td>
+                      {r.unrated ? <span className="chip warn" style={{ fontSize: 11 }}>no {metalName(r.metalId)} rate</span>
+                        : r.fundingPaise ? inr(r.fundingPaise) : "—"}</td>
                     <td style={{ padding: 6 }}>{rows.length > 1 &&
                       <button className="btn ghost" style={{ padding: "6px 9px", fontSize: 12 }}
                         onClick={() => setRows(rows.filter((_, j) => j !== i))}>✕</button>}</td>
@@ -265,7 +328,6 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                   <td className="mono" style={{ padding: "10px 8px" }}>{g(totals.stoneMg)}</td>
                   <td className="mono" style={{ padding: "10px 8px" }}>{g(totals.netMg)}</td>
                   <td />
-                  <td className="mono" style={{ padding: "10px 8px" }}>{inr(totals.marketPaise)}</td>
                   <td className="mono" style={{ padding: "10px 8px", color: "#a8791f" }}>{inr(totals.fundingPaise)}</td>
                   <td />
                 </tr>
@@ -280,7 +342,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
               started — publish it on the HQ rate board, then start a fresh pledge</span></div>}
 
           {!schemeId && <div style={{ marginTop: 12 }}>
-            <span className="chip warn">choose a scheme in step 2 — funding value needs its percentage</span></div>}
+            <span className="chip warn">choose the scheme above — funding value needs its percentage</span></div>}
 
           <div style={{ marginTop: 18 }}>
             <PhotoInput kind="ornament_set" multiple label="Photograph all ornaments together *"
@@ -310,11 +372,9 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
         <fieldset disabled={ro} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
         <div className="card">
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(190px,1fr))", gap: 14 }}>
-            <div><label className="f">Scheme *</label>
-              <select className="i" value={schemeId} onChange={e => setSchemeId(e.target.value)}>
-                <option value="">— choose —</option>
-                {schemes.map(s => <option key={s.id} value={s.id}>{s.code} · fund {s.fundingPct}%</option>)}
-              </select></div>
+            <div><label className="f">Scheme</label>
+              <div className="i" style={{ display: "flex", alignItems: "center", background: "#faf9f4" }}>
+                {scheme ? `${scheme.code} · fund ${scheme.fundingPct}%` : "— chosen in step 1 —"}</div></div>
             <div><label className="f">Loan amount ₹ *</label>
               <input className="i mono" value={amount} placeholder="0"
                 onChange={e => setAmount(e.target.value.replace(/[^\d]/g, ""))} /></div>
@@ -328,8 +388,14 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
           <div style={{ display: "flex", gap: 18, flexWrap: "wrap", background: "#faf9f4",
             borderRadius: 12, padding: "12px 16px", marginTop: 16 }}>
             <V k="Net gold" v={g(totals.netMg) + " g"} />
-            <V k="Valuation" v={inr(totals.marketPaise)} />
             <V k={`Funding value (${fundingPct}%)`} v={inr(totals.fundingPaise)} brass />
+          </div>
+
+          {/* E32 №4: a remark on the file */}
+          <div style={{ marginTop: 14 }}>
+            <label className="f">Remark <span style={{ textTransform: "none", letterSpacing: 0, color: "var(--mut)" }}>— shown on the loan page and in Loan Details</span></label>
+            <textarea className="i" rows={2} maxLength={500} value={remark} onChange={e => setRemark(e.target.value)}
+              placeholder="e.g. Customer wants to close within 3 months; gold belongs to her mother" />
           </div>
 
           <div style={{ marginTop: 12, display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -499,8 +565,8 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
           <div className="card">
             <Head n="1" t="Amount payable" />
             <Line k={`Loan sanctioned · ${scheme?.code || ""}`} v={inr(principalPaise)} big />
-            <Line k="Valuation / funding value"
-              v={`${inr(totals.marketPaise)} / ${inr(totals.fundingPaise)}`} />
+            <Line k="Funding value" v={inr(totals.fundingPaise)} />
+            {remark && <Line k="Remark" v={remark} />}
             <Line k="Processing fee + GST" v={inr(charge.totalPaise)}
               note="recovered at the first repayment — not deducted here" />
             <div style={{ height: 1, background: "var(--line)", margin: "10px 0" }} />
@@ -510,7 +576,7 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
           {/* 2 · How it is paid */}
           <div className="card">
             <Head n="2" t="How it is paid" />
-            <label className="f">Cash portion · RBI limit under ₹20,000 (Sec 269SS)</label>
+            <label className="f">Cash portion · must be under {inr(cashCapPaise)}{cashCapPaise === 2000000 ? " (Sec 269SS)" : " (Settings · Limits)"}</label>
             <input className="i mono" style={{ height: 48, fontSize: 19, fontWeight: 800 }}
               value={cash} placeholder="0" disabled={status !== "approved"}
               onChange={e => onCash(e.target.value.replace(/[^\d]/g, ""))} />
@@ -531,10 +597,10 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                   <div key={b.id} style={{ background: on ? "#f6faf7" : "#fff",
                     border: "1px solid " + (on ? "#1b4434" : "var(--line)"), borderRadius: 12, padding: "12px 14px" }}>
                     <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-                      <button onClick={() => b.payable && toggleBank(b.id)}
-                        disabled={!b.payable || status !== "approved"}
+                      <button onClick={() => toggleBank(b.id)}
+                        disabled={status !== "approved"}
                         style={{ display: "flex", alignItems: "center", gap: 9, background: "transparent",
-                          border: 0, cursor: b.payable ? "pointer" : "not-allowed", padding: 0,
+                          border: 0, cursor: status === "approved" ? "pointer" : "not-allowed", padding: 0,
                           textAlign: "left", flex: "1 1 300px", minWidth: 0 }}>
                         <span style={{ width: 20, height: 20, borderRadius: 5, border: "2px solid #1b4434",
                           background: on ? "#1b4434" : "transparent", color: "#fff", display: "flex",
@@ -544,8 +610,10 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
                           <span style={{ display: "block", fontWeight: 800, fontSize: 14 }}>{b.bank}</span>
                         </span>
                       </button>
-                      <span className={"chip " + (b.payable ? "ok" : "warn")}>
-                        {b.payable ? "penny drop ✓" : "not verified — cannot receive"}</span>
+                      {/* E29 (owner, 14 Oct 2026): unverified accounts may be paid —
+                          Pay then asks for a signed confirmation in a pop-up */}
+                      <span className={"chip " + (b.verified || vnow[b.id] ? "ok" : "warn")}>
+                        {b.verified || vnow[b.id] ? "verified ✓" : "not verified — pay needs your confirmation"}</span>
                       <input className="i mono" style={{ maxWidth: 140, fontWeight: 800 }} placeholder="0"
                         disabled={!on || status !== "approved"} value={legs[b.id] ?? ""}
                         onChange={e => setLegs({ ...legs, [b.id]: e.target.value.replace(/[^\d]/g, "") })} />
@@ -637,6 +705,83 @@ export default function WizardClient({ app, customer, items, purities, schemes, 
       </div>
       {chip && <div style={{ marginTop: 10 }}><span className={"chip " + chip.tone}>{chip.text}</span></div>}
       <TopNotice notice={chip} onClose={() => setChip(null)} />
+
+      {/* E29 (owner ruling, 14 Oct 2026): paying an UNVERIFIED account needs a
+          signed confirmation. The account is shown IN FULL so it can be read
+          back to the customer; a recent number change is shouted. The server
+          records who pressed Yes (disbursement_leg.unverified_ack_by). */}
+      {unv && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(12,35,27,.6)", display: "grid",
+          placeItems: "center", zIndex: 9990, padding: 16 }}>
+          <div className="card" style={{ maxWidth: 560, width: "100%", borderTop: "6px solid var(--warn)",
+            maxHeight: "90vh", overflow: "auto" }}>
+            <h2 style={{ fontSize: 19, fontWeight: 900 }}>⚠ You are disbursing to an UNVERIFIED bank account</h2>
+            <p style={{ color: "var(--mut)", fontSize: 14, margin: "8px 0 12px" }}>
+              Nobody has verified {unv.accounts.length === 1 ? "this account" : "these accounts"} belongs
+              to the customer. Read the number back to the customer now — money sent to a wrong
+              account is usually lost for good.</p>
+            {unv.accounts.map(a => (
+              <div key={a.id} style={{ background: "#fdf8ec", border: "1px solid #e8c97a",
+                borderRadius: 12, padding: "12px 14px", marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+                  <b>{a.bank}</b>
+                  <b className="mono">{inr(a.amountPaise)}</b>
+                </div>
+                <div className="mono" style={{ fontSize: 22, fontWeight: 900, letterSpacing: ".04em",
+                  margin: "6px 0 2px" }}>{a.accountNo}</div>
+                <div style={{ fontSize: 13, color: "var(--mut)" }}>
+                  IFSC <b className="mono" style={{ color: "var(--ink)" }}>{a.ifsc}</b>
+                  {" · "}holder <b style={{ color: "var(--ink)" }}>{a.holderName}</b></div>
+                {a.changedRecently && (
+                  <div style={{ marginTop: 8, background: "var(--bad)", color: "#fff", borderRadius: 8,
+                    padding: "7px 10px", fontSize: 13, fontWeight: 800 }}>
+                    This account number was CHANGED on {a.changedRecently.on} by {a.changedRecently.by}
+                    {a.changedRecently.from ? ` (was …${String(a.changedRecently.from).slice(-4)})` : ""} —
+                    check it with the customer before paying.</div>)}
+
+                {/* E29b (owner, 14 Oct 2026): verify right here instead of paying unverified */}
+                {vnow[a.id] ? (
+                  <div style={{ marginTop: 10 }}><span className="chip ok">verified ✓ — paid as a verified account</span></div>
+                ) : (
+                  <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed #e8c97a" }}>
+                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase",
+                      color: "var(--mut)", marginBottom: 6 }}>Verify this account now</div>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-start" }}>
+                      <div style={{ flex: "1 1 220px" }}>
+                        <PhotoInput kind="cheque" compact label="Cheque / passbook photo"
+                          value={proof[a.id] || null}
+                          onChange={(v) => setProof(m => ({ ...m, [a.id]: v }))} />
+                        <button className="btn" style={{ marginTop: 8 }}
+                          disabled={!proof[a.id]?.fileId || vbusy === a.id || busy}
+                          onClick={() => verifyByDocument(a.id)}>
+                          {vbusy === a.id ? "Verifying…" : "Verify by document"}</button>
+                      </div>
+                      <div style={{ flex: "1 1 180px" }}>
+                        <button className="btn ghost" disabled
+                          title="No bank-verification provider is connected yet (O11)">
+                          Verify by bank API</button>
+                        <div className="hint" style={{ marginTop: 6 }}>
+                          Not connected yet — switches on when a penny-drop provider is set up.</div>
+                      </div>
+                    </div>
+                    {verr?.id === a.id &&
+                      <div style={{ marginTop: 8 }}><span className="chip bad">{verr.text}</span></div>}
+                  </div>)}
+              </div>))}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 14, flexWrap: "wrap" }}>
+              <button className="btn ghost" disabled={busy || !!vbusy} onClick={() => setUnv(null)}>Go back</button>
+              {unv.accounts.every(a => vnow[a.id]) ? (
+                <button className="btn green" disabled={busy}
+                  onClick={() => { const extra = unv.extra; setUnv(null); act("disburse", extra); }}>
+                  {busy ? "…" : "All accounts verified — pay now"}</button>
+              ) : (
+                <button className="btn" disabled={busy || !!vbusy} style={{ background: "var(--warn)" }}
+                  onClick={() => { const extra = unv.extra; setUnv(null);
+                    act("disburse", { ...extra, unverifiedAck: true }); }}>
+                  {busy ? "…" : "Pay without verifying — I have checked the account"}</button>)}
+            </div>
+          </div>
+        </div>)}
 
       <style>{`.pill{display:inline-flex;align-items:center;gap:9px;font-size:13.5px;font-weight:700;
         background:#faf9f4;border:1px solid var(--line);padding:9px 13px;border-radius:11px;cursor:pointer}

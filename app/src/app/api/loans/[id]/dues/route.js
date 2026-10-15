@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { one, q } from "@/lib/db.js";
-import { dues, roundUp10 } from "@/lib/engine.js";
+import { dues, roundUp10, interestCoverage } from "@/lib/engine.js";
 import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
 import { viewUrl } from "@/lib/s3.js";
 export const runtime = "nodejs";
@@ -35,7 +35,7 @@ export async function loadPosition(loanId, branchId) {
       WHERE lc.loan_id = $1 AND lc.removed_at IS NULL
       ORDER BY lc.added_at, lc.id`, [loanId]);
   const receipts = await q(
-    `SELECT business_date, amount_paise, closes_loan FROM receipt
+    `SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
       WHERE loan_id = $1 ORDER BY business_date, id`, [loanId]);
 
   const scheme = schemeFromRow(sv, slabs, loan.scheme_code);
@@ -79,6 +79,8 @@ export async function GET(req, { params }) {
 
     const running = dues(pos.scheme, pos.state, today);
     const closing = dues(pos.scheme, pos.state, today, { closing: true });
+    // E36 (owner, 15 Oct 2026): the counter's "interest paid up to / due for N days" line
+    const coverage = interestCoverage(pos.scheme, pos.state, today);
 
     const cashToday = await one(
       `SELECT coalesce(sum(r.amount_paise), 0)::bigint AS paise
@@ -112,7 +114,7 @@ export async function GET(req, { params }) {
           amountPaise: Number(c.total_paise), payablePaise: payable,
           balancePaise: Math.max(0, payable - paid) };
       }),
-      running, closing,
+      running, closing, coverage,
       cashAlreadyTodayPaise: Number(cashToday.paise),
       canCollect: can(actor, "collect", { need: "full" }).ok });
   } catch (e) {

@@ -20,7 +20,6 @@ export default async function ApprovalsPage() {
             s.code AS scheme, sv.funding_pct,
             e.full_name AS recommender,
             (SELECT COALESCE(sum(net_mg),0) FROM appraisal_item WHERE application_id=a.id)::int AS net_mg,
-            (SELECT COALESCE(sum(market_paise),0) FROM appraisal_item WHERE application_id=a.id)::bigint AS market_paise,
             (SELECT COALESCE(sum(funding_paise),0) FROM appraisal_item WHERE application_id=a.id)::bigint AS funding_paise,
             (SELECT count(*) FROM appraisal_item WHERE application_id=a.id)::int AS item_count,
             v1.full_name AS valuer1, v2.full_name AS valuer2
@@ -51,7 +50,7 @@ export default async function ApprovalsPage() {
         can never be the one who decides it.
       </p>
       <ApprovalsClient waiting={waiting.map(r => ({ ...r, id: Number(r.id),
-        amount_paise: Number(r.amount_paise), market_paise: Number(r.market_paise),
+        amount_paise: Number(r.amount_paise),
         funding_paise: Number(r.funding_paise), recommended_by: Number(r.recommended_by) }))}
         decided={decided.map(r => ({ ...r, id: Number(r.id), amount_paise: Number(r.amount_paise) }))}
         meId={actor.employeeId} />

@@ -157,6 +157,12 @@ export async function POST(req) {
           await cl.query(
             `UPDATE loan_application SET status='cancelled', updated_at=now(), updated_by=$2
               WHERE id=$1`, [d.id, actor.employeeId]);
+          // E28: a file cancelled while waiting at HO must leave the HO queue too —
+          // a stale 'waiting' row let HO "approve" a cancelled file back to life
+          await cl.query(
+            `UPDATE ho_approval SET status='withdrawn', decided_at=now(),
+                    reject_reason='cancelled at day-end (№7)'
+              WHERE application_id=$1 AND status='waiting'`, [d.id]);
           await cl.query(
             `INSERT INTO loan_state_history (application_id, from_state, to_state, by_employee, note)
              VALUES ($1,$2,'cancelled',$3,'not disbursed by day-end — cancelled automatically (№7)')`,

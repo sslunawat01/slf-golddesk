@@ -32,9 +32,10 @@ export async function GET(req) {
               sv.id AS svid, sv.version_no, sv.round_step_paise, sv.days_in_year, sv.calc_method,
               sv.min_interest_days, sv.tenure_days, sv.penal_rate_pct, sv.penal_grace_days,
               sv.interest_pct, sv.slab_mode, sv.funding_pct,
-              s.code AS scheme_code, s.name AS scheme_name,
+              s.code AS scheme_code, s.name AS scheme_name, la.remark AS app_remark,
               (CURRENT_DATE - l.disbursed_at)::int + 1 AS age_days
          FROM loan l
+         JOIN loan_application la ON la.id=l.application_id
          JOIN branch b ON b.id=l.branch_id
          JOIN customer c ON c.id=l.customer_id
          JOIN scheme_version sv ON sv.id=l.scheme_version_id
@@ -48,13 +49,15 @@ export async function GET(req) {
 
     const [items, legs, receipts, appropriations, charges, history, custody, release] = await Promise.all([
       q(`SELECT ai.qty, ai.gross_mg, ai.stone_mg, ai.net_mg, ai.purity_pct_snapshot,
-                ai.market_paise, ai.funding_paise, i.name AS item, p.karat
+                ai.funding_paise, i.name AS item, p.karat
            FROM appraisal_item ai JOIN item i ON i.id=ai.item_id
            LEFT JOIN purity p ON p.id=ai.purity_id
           WHERE ai.application_id=$1 ORDER BY ai.id`, [loan.application_id]),
       q(`SELECT dl.kind, dl.amount_paise, dl.utr, d.created_at, sa.nickname AS from_account,
-                cba.bank, cba.account_no, e.full_name AS by_name
+                cba.bank, cba.account_no, e.full_name AS by_name,
+                ua.full_name AS unverified_ack_name               -- E29
            FROM disbursement_leg dl JOIN disbursement d ON d.id=dl.disbursement_id
+           LEFT JOIN employee ua ON ua.id = dl.unverified_ack_by
            LEFT JOIN slf_bank_account sa ON sa.id=d.from_slf_account_id
            LEFT JOIN customer_bank_account cba ON cba.id=dl.customer_bank_account_id
            LEFT JOIN employee e ON e.id=d.created_by
@@ -93,17 +96,17 @@ export async function GET(req) {
                               WHERE scheme_version_id=$1 ORDER BY from_day`, [loan.svid]);
       const chg = await q(`SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on
                              FROM loan_charge lc WHERE lc.loan_id=$1 AND lc.removed_at IS NULL`, [loan.id]);
-      const rec = await q(`SELECT business_date, amount_paise, closes_loan FROM receipt
+      const rec = await q(`SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
                             WHERE loan_id=$1 ORDER BY business_date, id`, [loan.id]);
       const scheme = schemeFromRow(loan, slabs, loan.scheme_code);
       const state = replayLoan({ principalPaise: loan.principal_paise,
         disbursedAt: loan.disbursed_at, scheme, charges: chg, receipts: rec });
       const today = (await one(`SELECT CURRENT_DATE::text AS d`)).d;
       const d = dues(scheme, state, today);
-      position = { asOn: today, principalPaise: Math.round(state.principal * 100),
+      position = { asOn: today, principalPaise: Number(state.principal),   // already paise (E27b)
         interestPaise: d._paise.interestDue, penalPaise: d._paise.penalDue,
         chargesPaise: d._paise.chargesDue,
-        totalDuePaise: Math.round(state.principal * 100) + d._paise.interestDue
+        totalDuePaise: Number(state.principal) + d._paise.interestDue
           + d._paise.penalDue + d._paise.chargesDue };
     }
 
@@ -116,7 +119,7 @@ export async function GET(req) {
         branch: `${loan.branch_code} ${loan.branch_name}`,
         custNo: loan.cust_no, customer: loan.customer, mobile: loan.mobile,
         scheme: `${loan.scheme_code} — ${loan.scheme_name} (v${loan.version_no})`,
-        principalPaise: Number(loan.principal_paise),
+        principalPaise: Number(loan.principal_paise), remark: loan.app_remark || null,
         disbursedAt: loan.disbursed_at, closedAt: loan.closed_at,
         ageDays: Number(loan.age_days),
         terms: { calc: loan.calc_method,
@@ -128,10 +131,11 @@ export async function GET(req) {
       items: items.map(i => ({ item: i.item, karat: i.karat, qty: i.qty,
         grossMg: Number(i.gross_mg), stoneMg: Number(i.stone_mg), netMg: Number(i.net_mg),
         purityPct: Number(i.purity_pct_snapshot),
-        marketPaise: Number(i.market_paise), fundingPaise: Number(i.funding_paise) })),
+        fundingPaise: Number(i.funding_paise) })),
       legs: legs.map(x => ({ kind: x.kind, amountPaise: Number(x.amount_paise), utr: x.utr,
         on: x.created_at, fromAccount: x.from_account,
-        toAccount: x.bank ? `${x.bank} …${String(x.account_no || "").slice(-4)}` : null, by: x.by_name })),
+        toAccount: x.bank ? `${x.bank} …${String(x.account_no || "").slice(-4)}` : null, by: x.by_name,
+        unverifiedAckBy: x.unverified_ack_name || null })),
       receipts: receipts.map(r => ({ receiptNo: r.receipt_no, onDate: r.d,
         amountPaise: Number(r.amount_paise), mode: r.mode, utr: r.utr,
         slfAccount: r.slf_account, closesLoan: r.closes_loan, sealsCycle: r.seals_cycle,

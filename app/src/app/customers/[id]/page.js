@@ -9,6 +9,10 @@ import { can } from "@/lib/policy.js";
 import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
 import { dues } from "@/lib/engine.js";
 import BankAccountsClient from "./BankAccountsClient.js";
+import RemarksClient from "./RemarksClient.js";
+import { ageOn } from "@/lib/customer.js";
+// pg hands DATE columns back as a JS Date here — normalise to 'YYYY-MM-DD'
+const isoDay = (v) => v instanceof Date ? new Date(v.getTime() - v.getTimezoneOffset() * 60000).toISOString().slice(0, 10) : String(v).slice(0, 10);
 export const dynamic = "force-dynamic";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
@@ -27,13 +31,16 @@ export default async function Customer360({ params, searchParams }) {
   const mayEditCust = actor && (can(actor, "settings", { need: "full" }).ok
     || can(actor, "edit_customer", { need: "full" }).ok);
   const canCollect = actor && can(actor, "collect", { need: "full" }).ok;
+  const mayBlacklist = actor && can(actor, "blacklist", { need: "full" }).ok;      // E32 №5
+  const remarkBy = await one(`SELECT w.full_name AS warn_by, b.full_name AS black_by FROM customer c
+      LEFT JOIN employee w ON w.id=c.warning_set_by LEFT JOIN employee b ON b.id=c.blacklist_set_by WHERE c.id=$1`, [id]);
 
   const [ photo, addresses, docs, nominee, banks, proofRows, loans, pendingApps, closed ] = await Promise.all([
     one(`SELECT f.s3_key, f.thumb_s3_key FROM customer_photo p JOIN file_object f ON f.id = p.file_id
           WHERE p.customer_id = $1 AND p.is_current ORDER BY p.captured_at DESC LIMIT 1`, [id]),
     q(`SELECT kind, line1, line2, pincode, area, taluka, district, state FROM customer_address
         WHERE customer_id = $1 ORDER BY kind`, [id]),
-    q(`SELECT cd.number, cd.expiry_d, dt.name, dt.category,
+    q(`SELECT cd.id, cd.number, cd.expiry_d, dt.name, dt.category,
               (SELECT count(*) FROM customer_document_scan s WHERE s.customer_document_id = cd.id)::int AS scans
          FROM customer_document cd JOIN document_type dt ON dt.id = cd.doc_type_id
         WHERE cd.customer_id = $1 ORDER BY dt.category, dt.name`, [id]),
@@ -80,10 +87,13 @@ export default async function Customer360({ params, searchParams }) {
     const slabs = await q(`SELECT from_day, to_day, rate_pct FROM scheme_slab
                             WHERE scheme_version_id = $1 ORDER BY from_day`, [l.scheme_version_id]);
     const lch = await q(
-      `SELECT lc.id, lc.total_paise, ct.name AS charge_name
+      // E28: added_on was missing, so buildEvents dated every charge "undefined"
+      // and replayed it AFTER all receipts — money that paid charges was re-routed
+      // to interest/principal on the 360 (10 of 44 live loans showed wrong figures)
+      `SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on, ct.name AS charge_name
          FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
         WHERE lc.loan_id = $1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [l.id]);
-    const rcp = await q(`SELECT business_date, amount_paise, closes_loan FROM receipt
+    const rcp = await q(`SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
                           WHERE loan_id = $1 ORDER BY business_date, id`, [l.id]);
     const scheme = schemeFromRow(sv, slabs, l.scheme);
     const state = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.disbursed_at,
@@ -103,6 +113,16 @@ export default async function Customer360({ params, searchParams }) {
   const outcomes = (await one(
     `SELECT enum_range(NULL::call_outcome)::text[] AS labels`)).labels;
   const cur = addresses.find(a => a.kind === "current");
+  // E32 №11: every KYC scan is viewable — signed links, thumbnails first
+  const scanRows = docs.length ? await q(
+    `SELECT s.customer_document_id AS doc_id, f.s3_key, f.thumb_s3_key
+       FROM customer_document_scan s JOIN file_object f ON f.id = s.file_id
+      WHERE s.customer_document_id = ANY($1::bigint[]) ORDER BY s.id`, [docs.map(d => d.id)]) : [];
+  const scans = {};
+  for (const r of scanRows)
+    (scans[r.doc_id] ??= []).push({
+      thumb: await viewUrl(r.thumb_s3_key || r.s3_key).catch(() => null),
+      full: await viewUrl(r.s3_key).catch(() => null) });
 
   return (
     <Shell>
@@ -120,7 +140,8 @@ export default async function Customer360({ params, searchParams }) {
         <div style={{ background: "var(--bad-bg)", borderLeft: "6px solid var(--bad)",
           borderRadius: "4px 14px 14px 4px", padding: "14px 16px", marginBottom: 16 }}>
           <div style={{ fontWeight: 900, color: "var(--bad)" }}>BLACKLISTED / BAD DEBTOR — lending blocked</div>
-          <div style={{ color: "var(--bad)", fontSize: 13.5, marginTop: 4 }}>{c.blacklist_narration}</div>
+          <div style={{ color: "var(--bad)", fontSize: 13.5, marginTop: 4, whiteSpace: "pre-wrap" }}>
+            {c.blacklist_remark || c.blacklist_narration}</div>
         </div>)}
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(240px,300px) 1fr", gap: 18,
@@ -138,6 +159,9 @@ export default async function Customer360({ params, searchParams }) {
               <div style={{ fontWeight: 900, fontSize: 18, lineHeight: 1.25 }}>{c.fullName}</div>
               <div className="mono" style={{ color: "var(--mut)", fontSize: 13, marginTop: 3 }}>
                 {c.cust_no}<br />{c.mobile}</div>
+              {c.dob && ageOn(isoDay(c.dob), today) != null && (
+                <div style={{ color: "var(--mut)", fontSize: 12.5, marginTop: 3 }}>
+                  {`age ${ageOn(isoDay(c.dob), today)}`}</div>)}
               <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
                 <a href={`/customers/${c.id}/edit?view=1`} className="btn ghost"
                   style={{ padding: "7px 14px", fontSize: 12.5, textDecoration: "none" }}>
@@ -160,6 +184,13 @@ export default async function Customer360({ params, searchParams }) {
               ? <NewPledgeButton customerId={Number(c.id)} />
               : <div><span className="chip bad" style={{ display: "block", textAlign: "center",
                   padding: "10px" }}>{lend.reason}</span></div>}
+          </div>
+
+          <div style={{ marginTop: 16 }}>
+            <RemarksClient customerId={Number(c.id)} name={c.fullName} custNo={c.cust_no}
+              warning={{ remark: c.warning_remark, by: remarkBy?.warn_by, at: c.warning_set_at ? String(c.warning_set_at) : null }}
+              blacklist={{ remark: c.blacklist_remark, by: remarkBy?.black_by, at: c.blacklist_set_at ? String(c.blacklist_set_at) : null }}
+              mayWarn={!!mayEditCust} mayBlacklist={!!mayBlacklist} />
           </div>
 
           <div style={{ marginTop: 16, background: "var(--vault)", borderRadius: 14, padding: 14, color: "#fff" }}>
@@ -281,12 +312,21 @@ export default async function Customer360({ params, searchParams }) {
           <div className="card">
             <K>Documents on file</K>
             {docs.length === 0 && <div style={{ color: "var(--mut)", fontSize: 14 }}>None.</div>}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 4 }}>
-              {docs.map((d, i) => (
-                <span key={i} className="chip mut">
+            {docs.map((d, i) => (
+              <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0, padding: "8px 0" }}>
+                <span className="chip mut">
                   {d.name} · <span className="mono">{d.number}</span> · {d.scans} photo{d.scans === 1 ? "" : "s"}
-                </span>))}
-            </div>
+                </span>
+                {(scans[d.id] || []).length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                    {scans[d.id].map((sc, j) => (
+                      <a key={j} href={sc.full || sc.thumb || "#"} target="_blank" rel="noreferrer" title="open full size">
+                        <img src={sc.thumb || sc.full} alt={`${d.name} scan ${j + 1}`}
+                          style={{ width: 96, height: 72, objectFit: "cover", borderRadius: 10,
+                            border: "1px solid var(--line)", display: "block" }} />
+                      </a>))}
+                  </div>)}
+              </div>))}
           </div>
 
           {closed.length > 0 && (

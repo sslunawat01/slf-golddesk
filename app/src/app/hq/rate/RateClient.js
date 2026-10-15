@@ -136,16 +136,14 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
 
       {m > 0 && f > 0 && !pairBad && (<>
         <h2 style={{ fontSize: 15, fontWeight: 800, margin: "24px 0 10px" }}>
-          At each purity, before the scheme's funding %</h2>
+          Lending rate at each purity — funding rate × purity, before the scheme's funding %</h2>
         <div className="card" style={{ display: "grid",
           gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 18 }}>
           {purities.map(p => (
             <div key={p.karat}>
               <div style={{ fontWeight: 800, fontSize: 14 }}>{p.karat} · {p.pct}%</div>
-              <div className="mono" style={{ fontSize: 13, color: "var(--mut)", marginTop: 4 }}>
-                market {inr0(Math.round(m * 100 * p.pct / 100))}</div>
-              <div className="mono" style={{ fontSize: 13, color: "#a8791f", fontWeight: 700 }}>
-                funding {inr0(Math.round(f * 100 * p.pct / 100))}</div>
+              <div className="mono" style={{ fontSize: 15, color: "#a8791f", fontWeight: 800, marginTop: 4 }}>
+                {inr0(Math.round(f * 100 * p.pct / 100))}<span style={{ fontSize: 12, color: "var(--mut)", fontWeight: 400 }}> /g</span></div>
             </div>))}
         </div>
       </>)}
@@ -162,8 +160,10 @@ export default function RateClient({ mayPublish, metals = [], metalId = 1, metal
             {history.map(h => {
               const hc = h.base_paise ? ((h.base_paise - h.funding_paise) / h.base_paise) * 100 : 0;
               return (
-                <tr key={h.rate_date} style={{ borderTop: "1px solid var(--line)" }}>
-                  <td style={{ padding: 8 }} className="mono">{h.rate_date}</td>
+                <tr key={h.id} style={{ borderTop: "1px solid var(--line)", opacity: h.superseded ? .55 : 1 }}>
+                  <td style={{ padding: 8 }} className="mono">{h.rate_date}
+                    <span style={{ color: "var(--mut)", fontSize: 11, marginLeft: 6 }}>{h.at_time}</span>
+                    {h.superseded && <span className="chip mut" style={{ marginLeft: 6, fontSize: 10.5 }}>corrected later that day</span>}</td>
                   <td style={{ padding: 8 }} className="mono"><b>{inr(h.base_paise)}</b></td>
                   <td style={{ padding: 8, color: "#a8791f" }} className="mono"><b>{inr(h.funding_paise)}</b></td>
                   <td style={{ padding: 8 }} className="mono">{hc.toFixed(1)}%</td>

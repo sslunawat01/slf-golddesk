@@ -26,6 +26,36 @@ export default function DayBookClient({ branches }) {
   ];
 
   const D = data?.day;
+  const tm = (v) => new Date(v).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true });
+  // E32 №8/№9: two separate blocks — loans disbursed, payments collected (interest and principal apart)
+  const disbCols = [
+    { key: "t", label: "Time", fmt: tm },
+    { key: "loanNo", label: "Loan No" },
+    { key: "customer", label: "Customer", fmt: (v, r) => <span style={{ whiteSpace: "normal", display: "inline-block", maxWidth: 220 }}>{v} <span className="mono" style={{ color: "var(--mut)", fontSize: 12 }}>{r.custNo}</span></span>, csv: (v, r) => `${v} (${r.custNo})` },
+    { key: "scheme", label: "Scheme" },
+    { key: "principalPaise", label: "Loan Amount ₹", num: true, fmt: inrP },
+    { key: "mode", label: "Mode" },
+    { key: "account", label: "From Account", fmt: v => v || "cash in hand" },
+    { key: "utr", label: "UTR" },
+    { key: "by", label: "By" },
+    { key: "amountPaise", label: "Paid Out ₹", num: true, fmt: inrP, total: "sum" },
+  ];
+  const collCols = [
+    { key: "t", label: "Time", fmt: tm },
+    { key: "receiptNo", label: "Receipt No" },
+    { key: "loanNo", label: "Loan No" },
+    { key: "customer", label: "Customer", fmt: (v, r) => <span style={{ whiteSpace: "normal", display: "inline-block", maxWidth: 220 }}>{v} <span className="mono" style={{ color: "var(--mut)", fontSize: 12 }}>{r.custNo}</span></span>, csv: (v, r) => `${v} (${r.custNo})` },
+    { key: "mode", label: "Mode" },
+    { key: "account", label: "To Account", fmt: v => v || "cash" },
+    { key: "chargesPaise", label: "Charges ₹", num: true, fmt: v => v ? inrP(v) : "—", total: "sum" },
+    { key: "penalPaise", label: "Penal ₹", num: true, fmt: v => v ? inrP(v) : "—", total: "sum" },
+    { key: "interestPaise", label: "Interest ₹", num: true, fmt: v => v ? inrP(v) : "—", total: "sum" },
+    { key: "principalPaise", label: "Principal ₹", num: true, fmt: v => v ? inrP(v) : "—", total: "sum" },
+    { key: "amountPaise", label: "Total ₹", num: true, fmt: v => <b>{inrP(v)}</b>, total: "sum" },
+    { key: "closes", label: "Settles", fmt: v => v ? "✓" : "—", csv: v => v ? "yes" : "no" },
+    { key: "by", label: "By" },
+  ];
+  const H2 = ({ children }) => <h2 style={{ fontSize: 14, fontWeight: 900, margin: "18px 0 8px" }}>{children}</h2>;
   const fact = (label, v, tone) => (
     <div key={label} style={{ minWidth: 130 }}>
       <div style={{ fontSize: 10.5, fontWeight: 800, textTransform: "uppercase",
@@ -67,6 +97,11 @@ export default function DayBookClient({ branches }) {
               <span className="chip warn">No day-begin was signed at this branch on this date —
                 movements below are shown against an opening of ₹0</span>)}
           </div>
+          <H2>Loans disbursed</H2>
+          <Tbl cols={disbCols} rows={data.disbursed || []} empty="No loan was disbursed on this day." />
+          <H2>Payments collected from customers</H2>
+          <Tbl cols={collCols} rows={data.collected || []} empty="No payment was collected on this day." />
+          <H2>Every movement, with the running cash balance</H2>
           <Tbl cols={cols} rows={data.moves} empty="No money moved on this day." />
           {data.accounts.length > 0 && (<>
             <h2 style={{ fontSize: 14, fontWeight: 900, margin: "18px 0 8px" }}>

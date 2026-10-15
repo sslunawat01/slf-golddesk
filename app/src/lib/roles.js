@@ -41,6 +41,9 @@ export const FUNCTION_LABELS = {
   set_metals: "Settings · Metals",
   set_items: "Settings · Items",
   set_banks: "Settings · Banks",
+  // E32
+  blacklist: "Blacklist / un-blacklist a customer",
+  set_limits: "Settings · Limits",
 };
 
 export const LEVELS = ["none", "view", "full"];

@@ -46,7 +46,7 @@ for (const l of loans) {
     `SELECT id, total_paise, added_at::date::text AS added_on FROM loan_charge
       WHERE loan_id = $1 AND removed_at IS NULL ORDER BY added_at`, [l.id]);
   const { rows: receipts } = await pool.query(
-    `SELECT business_date::text AS date, amount_paise, closes_loan FROM receipt
+    `SELECT business_date::text AS date, amount_paise, closes_loan, engine_version FROM receipt
       WHERE loan_id = $1 ORDER BY id`, [l.id]);
 
   const state = replayLoan({

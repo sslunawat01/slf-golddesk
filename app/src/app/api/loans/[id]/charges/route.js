@@ -31,7 +31,7 @@ export async function GET(req, { params }) {
       customerName: loan.customer_name, schemeCode: loan.scheme_code },
     types: types.map(t => {
       const d = chargeDefault(t, loan.principal_paise);
-      const basis = t.calc === "percent"
+      const basis = t.calc === "pct_of_sanction"
         ? `${Number(t.pct)}% of sanction` +
           (t.min_paise ? ` · min ₹${Math.round(t.min_paise / 100)}` : "") +
           (t.max_paise ? ` · max ₹${Math.round(t.max_paise / 100)}` : "")

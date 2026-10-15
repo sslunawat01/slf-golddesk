@@ -109,22 +109,31 @@ export const CASH_CAP_PAISE = 2000000;
  * already puts charges first. `chargesPaise` is accepted for display only.
  * Because the principal is always a multiple of 100 (R-J), the payable amount is too.
  */
-export function disbursementPlan({ principalPaise, chargesPaise = 0, cashPaise = 0, bankLegs = [] }) {
+export function disbursementPlan({ principalPaise, chargesPaise = 0, cashPaise = 0, bankLegs = [],
+                                   cashCapPaise = CASH_CAP_PAISE }) {
   const payable = principalPaise;
   const bankTotal = bankLegs.reduce((s, l) => s + Number(l.amountPaise || 0), 0);
   const allocated = cashPaise + bankTotal;
   const problems = [];
-  if (cashPaise >= CASH_CAP_PAISE)
-    problems.push("cash must be under ₹20,000 (Sec 269SS) — send the balance to a bank account");
+  // E32 №6 (owner, 15 Oct 2026): the figure comes from Settings · Limits; the
+  // legal default stays ₹20,000 (Sec 269SS) and the message names the law only then
+  if (cashPaise >= cashCapPaise)
+    problems.push(cashCapPaise === CASH_CAP_PAISE
+      ? "cash must be under ₹20,000 (Sec 269SS) — send the balance to a bank account"
+      : `cash must be under ${inr(cashCapPaise)} (Settings · Limits) — send the balance to a bank account`);
   if (cashPaise < 0 || bankLegs.some(l => Number(l.amountPaise) <= 0))
     problems.push("every leg needs a positive amount");
-  if (bankLegs.some(l => !l.verified))
-    problems.push("an unverified bank account cannot receive money");
+  // E29 (owner ruling, 14 Oct 2026): an UNVERIFIED account may receive money
+  // after a signed pop-up confirmation — it is no longer a refusal here. The
+  // plan FLAGS those legs; the disburse API demands the confirmation and the
+  // database trigger demands the confirmer's name (migration 030).
+  const unverifiedLegs = bankLegs.filter(l => !l.verified);
   if (allocated !== payable)
     problems.push(allocated < payable
       ? `${inr(payable - allocated)} still unallocated`
       : `${inr(allocated - payable)} over-allocated`);
-  return { payablePaise: payable, allocatedPaise: allocated, ok: problems.length === 0, problems };
+  return { payablePaise: payable, allocatedPaise: allocated, ok: problems.length === 0, problems,
+    unverifiedLegs, needsUnverifiedConfirm: unverifiedLegs.length > 0 };
 }
 
 /** Scheme document charge: percentage of sanction, floored and capped. */

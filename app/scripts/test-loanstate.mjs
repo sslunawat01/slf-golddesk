@@ -1,4 +1,4 @@
-import { schemeFromRow, buildEvents, replayLoan, chargeSnapshot, appropriationRows,
+import { schemeFromRow, buildEvents, replayLoan, chargeSnapshot, appropriationRows, penalRuleFor,
          cashCapCheck, utrCheck, ENGINE_VERSION } from "../src/lib/loanstate.js";
 import { dues, applyPayment } from "../src/lib/engine.js";
 
@@ -160,6 +160,47 @@ eq("a real reference passes", utrCheck("bank", "N0272026072700123").ok, true);
 
 console.log("\n§8 Every receipt records which engine priced it");
 eq("the engine version is stamped and not empty", ENGINE_VERSION.length > 0, true);
+eq("today's engine is 1.2.0 (penal clock = interest-unpaid period, 15 Oct 2026)", ENGINE_VERSION, "1.2.0");
+
+console.log("\n§9 Old receipts replay under the rule they were priced with (E31)");
+{
+  eq("1.1.0 → loan-age penal rule", penalRuleFor("1.1.0"), "loan_age");
+  eq("1.0.x → loan-age penal rule", penalRuleFor("1.0.9"), "loan_age");
+  eq("1.2.0 → interest-unpaid rule", penalRuleFor("1.2.0"), "unpaid_interest");
+  eq("no version (a payment priced now) → today's rule", penalRuleFor(undefined), "unpaid_interest");
+  const scheme = schemeFromRow(SBIND04, SLABS, "SB-IND04");       // tenure 185, grace 7, penal 2%
+  const opening = { principalPaise: 10000000, disbursedAt: "2025-01-01", scheme };
+  // Day 100: interest paid (₹5,000 of it). Day 250: an OLD receipt (1.1.0) that
+  // paid the loan-age penal that existed then — its stored split must reproduce.
+  const old250 = replayLoan({ ...opening, receipts: [
+    { business_date: "2025-04-10", amount_paise: 500000, closes_loan: false, engine_version: "1.1.0" }] });
+  const dueOld = dues(scheme, old250, "2025-09-07", { penalRule: "loan_age" });
+  eq("loan-age rule on day 250 still prices penal after a day-100 part payment", dueOld.penal.due > 0, true);
+  eq("…while today's rule prices none (clock restarted on 11 Apr)",
+     dues(scheme, old250, "2025-09-07").penal.due, 0);
+  // the day-250 receipt stored under 1.1.0 paid that penal; replaying it under
+  // 1.2.0 would reject it (more than today's rule says is due) — versioning keeps it
+  const paidPenal = Math.round(dueOld.penal.due * 100);
+  const mixed = replayLoan({ ...opening, receipts: [
+    { business_date: "2025-04-10", amount_paise: 500000, closes_loan: false, engine_version: "1.1.0" },
+    { business_date: "2025-09-07", amount_paise: paidPenal, closes_loan: false, engine_version: "1.1.0" }] });
+  eq("old penal receipt replays cleanly and lands on penal", mixed.penalPaid === 0 && mixed.penalAnchor === "2025-09-08", true);
+  // the events carry the rule
+  const evs = buildEvents([], [{ business_date: "2025-09-07", amount_paise: 1000, closes_loan: false, engine_version: "1.1.0" },
+                               { business_date: "2025-09-08", amount_paise: 1000, closes_loan: false, engine_version: "1.2.0" }]);
+  eq("buildEvents tags each payment with its penal rule", evs.map(e => e.penalRule), ["loan_age", "unpaid_interest"]);
+}
+
+
+console.log("\n§10 E32 №6 — the daily cash cap is a setting");
+{
+  eq("₹2,00,000 exactly passes the legal cap", cashCapCheck({ alreadyTodayPaise: 15000000, amountPaise: 5000000 }).ok, true);
+  eq("₹2,00,010 fails the legal cap", cashCapCheck({ alreadyTodayPaise: 15000000, amountPaise: 5001000 }).ok, false);
+  eq("…with the law named", /269ST/.test(cashCapCheck({ alreadyTodayPaise: 15000000, amountPaise: 5001000 }).reason), true);
+  eq("₹3,00,000 passes an owner limit of ₹5,00,000", cashCapCheck({ alreadyTodayPaise: 0, amountPaise: 30000000, capPaise: 50000000 }).ok, true);
+  const tight = cashCapCheck({ alreadyTodayPaise: 0, amountPaise: 6000000, capPaise: 5000000 });
+  eq("₹60,000 fails an owner limit of ₹50,000, naming Settings · Limits", !tight.ok && /Settings · Limits/.test(tight.reason), true);
+}
 
 console.log(`\n${pass} passed · ${fail} failed`);
 process.exit(fail ? 1 : 0);

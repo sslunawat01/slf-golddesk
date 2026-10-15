@@ -103,7 +103,7 @@ export async function activePositions(branchIds) {
       `SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on FROM loan_charge lc
         WHERE lc.loan_id=$1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [l.id]);
     const receipts = await q(
-      `SELECT business_date, amount_paise, closes_loan FROM receipt
+      `SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
         WHERE loan_id=$1 ORDER BY business_date, id`, [l.id]);
     const scheme = schemeFromRow(l, slabs, l.scheme_code);
     const state = replayLoan({ principalPaise: l.principal_paise, disbursedAt: l.disbursed_at,
@@ -111,6 +111,43 @@ export async function activePositions(branchIds) {
     const d = dues(scheme, state, today);
     out.push({ loan: l, scheme, state, dues: d, today,
       overdue: Number.isFinite(scheme.tenureDays) && Number(l.age_days) > scheme.tenureDays });
+  }
+  return out;
+}
+
+/**
+ * The branch book (principal outstanding, paise) as at the CLOSE of a date:
+ * every loan OPEN on that date (disbursed on or before it, not yet closed),
+ * replayed by the engine with only the receipts and charges that existed by
+ * then (E27b). Same arithmetic as the collect screen, so a report never
+ * disagrees with a counter figure.
+ */
+export async function bookPrincipalAt(branchIds, d) {
+  const loans = await q(
+    `SELECT l.id, l.branch_id, l.principal_paise, l.disbursed_at,
+            sv.id AS sv_id, sv.round_step_paise, sv.days_in_year, sv.calc_method,
+            sv.min_interest_days, sv.tenure_days, sv.penal_rate_pct, sv.penal_grace_days,
+            sv.interest_pct, sv.slab_mode, s.code AS scheme_code
+       FROM loan l
+       JOIN scheme_version sv ON sv.id = l.scheme_version_id
+       JOIN scheme s ON s.id = sv.scheme_id
+      WHERE l.branch_id = ANY($1::bigint[]) AND l.disbursed_at <= $2
+        AND (l.closed_at IS NULL OR l.closed_at::date > $2)`, [branchIds, d]);
+  const out = {};
+  for (const l of loans) {
+    const slabs = await q(`SELECT from_day, to_day, rate_pct FROM scheme_slab
+                            WHERE scheme_version_id=$1 ORDER BY from_day`, [l.sv_id]);
+    const charges = await q(
+      `SELECT lc.id, lc.total_paise, lc.added_at::date::text AS added_on FROM loan_charge lc
+        WHERE lc.loan_id=$1 AND lc.removed_at IS NULL AND lc.added_at::date <= $2
+        ORDER BY lc.added_at, lc.id`, [l.id, d]);
+    const receipts = await q(
+      `SELECT business_date, amount_paise, closes_loan, engine_version FROM receipt
+        WHERE loan_id=$1 AND business_date <= $2 ORDER BY business_date, id`, [l.id, d]);
+    const scheme = schemeFromRow(l, slabs, l.scheme_code);
+    const state = replayLoan({ principalPaise: l.principal_paise,
+      disbursedAt: l.disbursed_at, scheme, charges, receipts });
+    out[Number(l.branch_id)] = (out[Number(l.branch_id)] || 0) + Number(state.principal);
   }
   return out;
 }

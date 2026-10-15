@@ -5,8 +5,10 @@ import { notFound } from "next/navigation";
 import { currentActor } from "@/lib/session.js";
 import { can } from "@/lib/policy.js";
 import { schemeFromRow, replayLoan } from "@/lib/loanstate.js";
-import { dues } from "@/lib/engine.js";
+import { dues, interestCoverage } from "@/lib/engine.js";
 import LoanExtrasClient from "../../customers/[id]/LoanExtrasClient.js";
+import FollowupSection from "@/components/followups/FollowupSection.js";
+import InterestClock from "@/components/InterestClock.js";
 export const dynamic = "force-dynamic";
 
 const inr = (p) => "₹" + Math.round(Number(p) / 100).toLocaleString("en-IN");
@@ -24,12 +26,23 @@ export default async function LoanProfile({ params }) {
   const l = await one(
     `SELECT l.*, s.code AS scheme_code, s.name AS scheme_name,
             c.full_name AS cust_name, c.cust_no, c.mobile AS cust_mobile,
+            la.remark AS app_remark,
             (CURRENT_DATE - l.disbursed_at)::int + 1 AS age_days  -- R-L: day 1 = disbursement day
        FROM loan l JOIN scheme_version sv ON sv.id = l.scheme_version_id
        JOIN scheme s ON s.id = sv.scheme_id
        JOIN customer c ON c.id = l.customer_id
+       JOIN loan_application la ON la.id = l.application_id
       WHERE l.id = $1`, [id]);
   if (!l) notFound();
+  // E32 №11: the custody evidence — sealed-packet photo (vault-in) and the
+  // handover photo (release) — viewable here like every other photo
+  const evidence = [];
+  for (const row of await q(
+    `SELECT 'Sealed packet' AS label, f.s3_key, f.thumb_s3_key FROM packet p JOIN file_object f ON f.id = p.seal_photo_file_id WHERE p.loan_id = $1
+     UNION ALL
+     SELECT 'Gold handover', f.s3_key, f.thumb_s3_key FROM release r JOIN file_object f ON f.id = r.handover_photo_id WHERE r.loan_id = $1`, [id]))
+    evidence.push({ label: row.label, thumb: await viewUrl(row.thumb_s3_key || row.s3_key).catch(() => null),
+      full: await viewUrl(row.s3_key).catch(() => null) });
 
   const [sv, slabs, lch, rcp, approps, items, photos, cob, custody, followups, outcomes,
          borrowerPhotoRow] =
@@ -41,7 +54,7 @@ export default async function LoanProfile({ params }) {
            FROM loan_charge lc JOIN charge_type ct ON ct.id = lc.charge_type_id
           WHERE lc.loan_id = $1 AND lc.removed_at IS NULL ORDER BY lc.added_at, lc.id`, [id]),
       q(`SELECT r.id, r.receipt_no, r.business_date, r.amount_paise, r.mode::text, r.utr,
-                r.paid_by, r.closes_loan, e.full_name AS received_by_name, sa.nickname AS slf_account
+                r.paid_by, r.closes_loan, r.engine_version, e.full_name AS received_by_name, sa.nickname AS slf_account
            FROM receipt r JOIN employee e ON e.id = r.received_by
            LEFT JOIN slf_bank_account sa ON sa.id = r.slf_bank_account_id
           WHERE r.loan_id = $1 ORDER BY r.business_date, r.id`, [id]),
@@ -88,6 +101,8 @@ export default async function LoanProfile({ params }) {
     scheme, charges: lch, receipts: rcp });
   const closing = dues(scheme, state, today, { closing: true });
   const P = closing._paise;
+  // E36 (owner, 15 Oct 2026): interest paid up to / due for N days — the running view, not the closing one
+  const coverage = l.status === "active" ? interestCoverage(scheme, state, today) : null;
   const principalOut = P.settlement - P.interestDue - P.penalDue - P.chargesDue;
   const totalNetMg = items.reduce((s, it) => s + Number(it.net_mg), 0);
 
@@ -182,6 +197,10 @@ export default async function LoanProfile({ params }) {
       <p className="mono" style={{ color: "var(--mut)", fontSize: 14, margin: "0 0 12px" }}>
         {l.scheme_code} · {g(totalNetMg)} g net · disbursed {dmy(l.disbursed_at)} · day {l.age_days} · as on {dmy(today)}
       </p>
+      {l.app_remark && (
+        <div style={{ background: "#fff8e6", border: "1px solid #e8c97a", borderRadius: 12, padding: "10px 14px",
+          margin: "0 0 14px", fontSize: 14 }}>
+          <b>Remark on the file:</b> <span style={{ whiteSpace: "pre-wrap" }}>{l.app_remark}</span></div>)}
 
       {/* №10+№5 (owner 28 Aug 2026): the people on this loan, live photos, straight links */}
       <div style={{ display: "flex", gap: 14, alignItems: "center", flexWrap: "wrap",
@@ -229,12 +248,14 @@ export default async function LoanProfile({ params }) {
       <div style={{ background: "#faf9f4", border: "1px solid var(--line)", borderRadius: 16,
         padding: "16px 18px", display: "grid",
         gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 14 }}>
+        <Tile k="Loan amount" v={inr(l.principal_paise)} />
         <Tile k="Principal outstanding" v={inr(principalOut)} />
         <Tile k="Interest accrued" v={inr(P.interestDue)} tone="#9a6d13" />
         <Tile k="Penal due" v={inr(P.penalDue)} tone={P.penalDue > 0 ? "#b03426" : "inherit"} />
         <Tile k="Charges due" v={inr(P.chargesDue)} tone={P.chargesDue > 0 ? "#b03426" : "inherit"} />
         <Tile k="Full settlement today" v={inr(P.settlement)} />
       </div>
+      {coverage && <InterestClock cov={coverage} style={{ marginTop: 10 }} />}
 
       {/* actions */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "14px 0 18px" }}>
@@ -266,6 +287,15 @@ export default async function LoanProfile({ params }) {
                 color: "var(--mut)", fontSize: 13, marginBottom: 10 }}>
                 No ornament photo on file for this loan.</div>
             )}
+            {evidence.filter(e => e.thumb).length > 0 && (
+              <div style={{ display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" }}>
+                {evidence.filter(e => e.thumb).map((e, i) => (
+                  <a key={i} href={e.full || e.thumb} target="_blank" rel="noreferrer" title="Open full size"
+                    style={{ textAlign: "center", textDecoration: "none", color: "var(--mut)", fontSize: 11 }}>
+                    <img src={e.thumb} alt={e.label} style={{ width: 96, height: 96, objectFit: "cover",
+                      borderRadius: 12, border: "1px solid var(--line)", display: "block" }} />
+                    {e.label}</a>))}
+              </div>)}
             {items.map((it, i) => (
               <div key={i} style={{ borderTop: i ? "1px solid var(--line)" : 0, padding: "9px 0",
                 display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
@@ -286,6 +316,9 @@ export default async function LoanProfile({ params }) {
               <b>Total net weight</b><b className="mono">{g(totalNetMg)} g</b>
             </div>
           </div>
+
+          {/* E33: the Follow-ups section — loads itself, same log as the Follow-ups tab */}
+          <FollowupSection loanId={Number(l.id)} />
 
           <div className="card">
             <H>Payment &amp; charge history</H>
@@ -386,17 +419,11 @@ export default async function LoanProfile({ params }) {
           </div>
 
           <div className="card">
-            <H>Follow-ups · {followups.length}</H>
+            <H>More on this loan</H>
+            {/* E33: follow-ups moved to their own section (left column); the legacy
+                "+ Follow-up" button is switched off here so there is ONE way to log */}
             <LoanExtrasClient loanId={Number(l.id)} outcomes={outcomes.labels} today={today}
-              canCollect={!!canCollect} />
-            {followups.map((f, i) => (
-              <div key={i} style={{ fontSize: 12.5, color: "#4a4d42", padding: "5px 0",
-                borderTop: "1px dashed #e8e4d8", marginTop: i === 0 ? 8 : 0 }}>
-                <span className="mono" style={{ color: "var(--mut)" }}>{dmy(f.on_date)}</span>
-                {" · "}{f.method || "call"} · <b>{f.outcome}</b>
-                {f.ptp_date ? ` · PTP ${dmy(f.ptp_date)}` : ""}
-                {f.next_follow_up ? ` · next ${dmy(f.next_follow_up)}` : ""}
-                {" · "}{f.by}{f.note ? ` — ${f.note}` : ""}</div>))}
+              canCollect={false} />
           </div>
         </div>
       </div>

@@ -20,9 +20,12 @@ export const FUNCTIONS = [
   // D-B (28 Aug 2026): Settings is eight separately-permissioned tabs.
   "set_charges", "set_branches", "set_schemes", "set_roles",
   "set_employees", "set_metals", "set_items", "set_banks",
+  // E32 (owner, 15 Oct 2026): blacklisting a customer is its own granted right;
+  // Settings gains a Limits tab (cash caps).
+  "blacklist", "set_limits",
 ];
 export const SETTINGS_FNS = ["set_charges", "set_branches", "set_schemes", "set_roles",
-  "set_employees", "set_metals", "set_items", "set_banks"];
+  "set_employees", "set_metals", "set_items", "set_banks", "set_limits"];
 
 const RANK = { none: 0, view: 1, full: 2 };
 const NO_BITS = Object.freeze({ view: false, add: false, edit: false, delete: false });

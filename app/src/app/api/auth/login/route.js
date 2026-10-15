@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { authenticate, createSession, clientMeta, COOKIE } from "@/lib/session.js";
 import { q, one } from "@/lib/db.js";
+import { issueLoginTicket } from "@/lib/loginticket.js";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,10 @@ export async function POST(req) {
     const lastId = last ? Number(last.acting_branch_id) : null;
     if (!lastId || !r.branches.some(b => Number(b.id) === lastId)) {
       const withDay = await withDayBegin(r.branches);
-      return NextResponse.json({ ok: true, next: "branch", employeeId: r.employeeId, branches: withDay });
+      // E28: the branch picker must PROVE the password step happened — a
+      // 5-minute ticket replaces the bare employeeId it used to send back
+      return NextResponse.json({ ok: true, next: "branch", ticket: issueLoginTicket(r.employeeId),
+        branches: withDay });
     }
     const meta0 = await clientMeta();
     const s0 = await createSession(r.employeeId, lastId, { ...meta0, keep: !!keep });
